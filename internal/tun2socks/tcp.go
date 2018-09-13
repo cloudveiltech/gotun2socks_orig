@@ -1,4 +1,4 @@
-package gotun2socks
+package tun2socks
 
 import (
 	"fmt"
@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/yinghuocho/gosocks"
-	"github.com/yinghuocho/gotun2socks/internal/packet"
+	"github.com/dkwiebe/gotun2socks/internal/gosocks"
+	"github.com/dkwiebe/gotun2socks/internal/packet"
 )
 
 type tcpPacket struct {
@@ -798,7 +798,6 @@ func (t2s *Tun2Socks) createTCPConnTrack(id string, ip *packet.IPv4, tcp *packet
 
 	t2s.tcpConnTrackMap[id] = track
 	go track.run()
-	log.Printf("tracking %d TCP connections", len(t2s.tcpConnTrackMap))
 	return track
 }
 
@@ -814,7 +813,6 @@ func (t2s *Tun2Socks) clearTCPConnTrack(id string) {
 	defer t2s.tcpConnTrackLock.Unlock()
 
 	delete(t2s.tcpConnTrackMap, id)
-	log.Printf("tracking %d TCP connections", len(t2s.tcpConnTrackMap))
 }
 
 func (t2s *Tun2Socks) tcp(raw []byte, ip *packet.IPv4, tcp *packet.TCP) {

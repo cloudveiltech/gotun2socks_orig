@@ -1,4 +1,4 @@
-package gotun2socks
+package tun2socks
 
 import (
 	"sync"

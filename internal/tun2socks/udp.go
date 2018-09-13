@@ -1,4 +1,4 @@
-package gotun2socks
+package tun2socks
 
 import (
 	"fmt"
@@ -10,8 +10,8 @@ import (
 
 	"github.com/miekg/dns"
 
-	"github.com/yinghuocho/gosocks"
-	"github.com/yinghuocho/gotun2socks/internal/packet"
+	"github.com/dkwiebe/gotun2socks/internal/gosocks"
+	"github.com/dkwiebe/gotun2socks/internal/packet"
 )
 
 type udpPacket struct {
@@ -349,7 +349,6 @@ func (t2s *Tun2Socks) clearUDPConnTrack(id string) {
 	defer t2s.udpConnTrackLock.Unlock()
 
 	delete(t2s.udpConnTrackMap, id)
-	log.Printf("tracking %d UDP connections", len(t2s.udpConnTrackMap))
 }
 
 func (t2s *Tun2Socks) getUDPConnTrack(id string, ip *packet.IPv4, udp *packet.UDP) *udpConnTrack {
@@ -381,7 +380,6 @@ func (t2s *Tun2Socks) getUDPConnTrack(id string, ip *packet.IPv4, udp *packet.UD
 
 		t2s.udpConnTrackMap[id] = track
 		go track.run()
-		log.Printf("tracking %d UDP connections", len(t2s.udpConnTrackMap))
 		return track
 	}
 }

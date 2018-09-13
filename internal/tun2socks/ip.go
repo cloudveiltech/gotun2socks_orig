@@ -1,10 +1,10 @@
-package gotun2socks
+package tun2socks
 
 import (
 	"log"
 	"net"
 
-	"github.com/yinghuocho/gotun2socks/internal/packet"
+	"github.com/dkwiebe/gotun2socks/internal/packet"
 )
 
 type ipPacket struct {
