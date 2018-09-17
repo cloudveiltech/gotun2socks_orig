@@ -36,7 +36,10 @@ const (
 	MAX_RECV_WINDOW int = 65535
 	MAX_SEND_WINDOW int = 65535
 )
-
+const {
+	PROXY_TYPE_HTTP = 0
+	PROXY_TYPE_SOCKS5 = 1
+}
 type tcpConnTrack struct {
 	t2s *Tun2Socks
 	id  string
@@ -50,6 +53,8 @@ type tcpConnTrack struct {
 	quitByOther  chan bool
 
 	localSocksAddr string
+	proxyType int
+
 	socksConn      *gosocks.SocksConn
 
 	// tcp context
@@ -400,7 +405,13 @@ func (tt *tcpConnTrack) payload(data []byte) {
 func (tt *tcpConnTrack) stateClosed(syn *tcpPacket) (continu bool, release bool) {
 	var e error
 	for i := 0; i < 2; i++ {
-		tt.socksConn, e = dialLocalSocks(tt.localSocksAddr)
+		if tt.remotePort == 80 || tt.remotePort == 443 {
+			tt.socksConn, e = dialLocalSocks(tt.localSocksAddr) //only 80 and 443 goes to proxy
+		} else {
+			remoteIpPort := fmt.Sprintf("%s:%d", tt.remoteIP.String(), tt.remotePort)
+			tt.socksConn, e = dialTransaprent(remoteIpPort)
+		}
+
 		if e != nil {
 			log.Printf("fail to connect SOCKS proxy: %s", e)
 		} else {
@@ -424,7 +435,7 @@ func (tt *tcpConnTrack) stateClosed(syn *tcpPacket) (continu bool, release bool)
 	return true, true
 }
 
-func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn, readCh chan<- []byte, writeCh <-chan *tcpPacket, closeCh chan bool) {
+func (tt *tcpConnTrack) callSocks(dstIP net.IP, dstPort uint16, conn net.Conn, closeCh chan bool) error {
 	_, e := gosocks.WriteSocksRequest(conn, &gosocks.SocksRequest{
 		Cmd:      gosocks.SocksCmdConnect,
 		HostType: gosocks.SocksIPv4Host,
@@ -435,20 +446,34 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 		log.Printf("error to send socks request: %s", e)
 		conn.Close()
 		close(closeCh)
-		return
+		return e
 	}
 	reply, e := gosocks.ReadSocksReply(conn)
 	if e != nil {
 		log.Printf("error to read socks reply: %s", e)
 		conn.Close()
 		close(closeCh)
-		return
+		return e
 	}
 	if reply.Rep != gosocks.SocksSucceeded {
 		log.Printf("socks connect request fail, retcode: %d", reply.Rep)
 		conn.Close()
 		close(closeCh)
-		return
+		return e
+	}
+
+	return nil
+}
+
+func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn, readCh chan<- []byte, writeCh <-chan *tcpPacket, closeCh chan bool) {
+	if dstPort == 443 || dstPort == 80 {
+		e := tt.callSocks(dstIP, dstPort, conn, closeCh)
+		if e != nil {
+			return
+		}
+
+		uid := FindAppUid(tt.localIP.String(), tt.localPort, dstIP.String(), dstPort)
+		log.Printf("UID for TCP request from %s:%d to %s:%d is %d", tt.localIP.String(), tt.localPort, dstIP.String(), dstPort, uid)
 	}
 	// writer
 	go func() {

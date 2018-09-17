@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 )
 
@@ -27,8 +28,9 @@ type TCP struct {
 	opts                                       [4]TCPOption
 	Padding                                    []byte
 	Payload                                    []byte
-
-	headerLength int
+	Hostname                                   string
+	ConnectSent                                bool
+	headerLength                               int
 }
 
 var (
@@ -92,6 +94,18 @@ func ParseTCP(pkt []byte, tcp *TCP) error {
 		return errors.New("TCP data offset greater than packet length")
 	}
 	tcp.Payload = pkt[dataStart:]
+
+	if tcp.DstPort == 443 {
+		tcp.ConnectSent = false
+		hostname, err := GetHostname(tcp.Payload)
+		if err == nil {
+			tcp.Hostname = hostname
+			log.Printf("Hostname is %s", hostname)
+		}
+	} else {
+		tcp.ConnectSent = true
+	}
+
 	// From here on, data points just to the header options.
 	rest := pkt[20:dataStart]
 	for len(rest) > 0 {

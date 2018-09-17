@@ -17,11 +17,16 @@ const (
 
 var (
 	localSocksDialer *gosocks.SocksDialer = &gosocks.SocksDialer{
-		Auth:    &gosocks.UserNamePasswordClientAuthenticator { 
+		Auth: &gosocks.UserNamePasswordClientAuthenticator{
 			UserName: "cloudveilsocks",
 			Password: "cloudveilsocks",
 		},
-		Timeout: 1 * time.Second,
+		Timeout: 10 * time.Second,
+	}
+
+	directDialer *gosocks.SocksDialer = &gosocks.SocksDialer{
+		Auth:    &gosocks.HttpAuthenticator{},
+		Timeout: 10 * time.Second,
 	}
 
 	_, ip1, _ = net.ParseCIDR("10.0.0.0/8")
@@ -55,6 +60,10 @@ func isPrivate(ip net.IP) bool {
 
 func dialLocalSocks(localAddr string) (*gosocks.SocksConn, error) {
 	return localSocksDialer.Dial(localAddr)
+}
+
+func dialTransaprent(localAddr string) (*gosocks.SocksConn, error) {
+	return directDialer.Dial(localAddr)
 }
 
 func New(dev io.ReadWriteCloser, localSocksAddr string, dnsServers []string, publicOnly bool, enableDnsCache bool) *Tun2Socks {

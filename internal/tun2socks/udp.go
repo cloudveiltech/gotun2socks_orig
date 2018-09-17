@@ -164,9 +164,11 @@ func (ut *udpConnTrack) run() {
 	// connect to socks
 	var e error
 	for i := 0; i < 2; i++ {
-		ut.socksConn, e = dialLocalSocks(ut.localSocksAddr)
+		var remoteIpPort string
+		remoteIpPort = fmt.Sprintf("%s:%d", ut.remoteIP.String(), ut.remotePort)
+		ut.socksConn, e = dialTransaprent(remoteIpPort) //bypass udp
 		if e != nil {
-			log.Printf("fail to connect SOCKS proxy: %s", e)
+			log.Printf("fail to connect remote ip: %s", e)
 		} else {
 			// need to finish handshake in 1 mins
 			ut.socksConn.SetDeadline(time.Now().Add(time.Minute * 1))

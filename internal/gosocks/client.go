@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"time"
 )
@@ -11,7 +12,6 @@ import (
 type ClientAuthenticator interface {
 	ClientAuthenticate(conn *SocksConn) error
 }
-
 
 type SocksDialer struct {
 	Timeout time.Duration
@@ -23,6 +23,14 @@ type AnonymousClientAuthenticator struct{}
 type UserNamePasswordClientAuthenticator struct {
 	UserName string
 	Password string
+}
+
+type HttpAuthenticator struct {
+}
+
+func (a *HttpAuthenticator) ClientAuthenticate(conn *SocksConn) (err error) {
+	conn.SetWriteDeadline(time.Now().Add(conn.Timeout))
+	return
 }
 
 func (a *AnonymousClientAuthenticator) ClientAuthenticate(conn *SocksConn) (err error) {
@@ -50,7 +58,7 @@ func (a *AnonymousClientAuthenticator) ClientAuthenticate(conn *SocksConn) (err 
 	return
 }
 
-func (a *UserNamePasswordClientAuthenticator) ClientAuthenticate(conn *SocksConn) (err error) {	
+func (a *UserNamePasswordClientAuthenticator) ClientAuthenticate(conn *SocksConn) (err error) {
 	conn.SetWriteDeadline(time.Now().Add(conn.Timeout))
 	var req [512]byte
 	var resp [2]byte
@@ -79,10 +87,10 @@ func (a *UserNamePasswordClientAuthenticator) ClientAuthenticate(conn *SocksConn
 	req[0] = 1
 	req[1] = byte(len(a.UserName))
 	copy(req[2:len(a.UserName)+2], a.UserName)
-	req[2 + len(a.UserName)] = byte(len(a.Password))
-	copy(req[3 + len(a.UserName):], a.Password)
+	req[2+len(a.UserName)] = byte(len(a.Password))
+	copy(req[3+len(a.UserName):], a.Password)
 
-	_, err = conn.Write(req[:3 + len(a.UserName) + len(a.Password)])
+	_, err = conn.Write(req[:3+len(a.UserName)+len(a.Password)])
 	if err != nil {
 		return
 	}
@@ -101,6 +109,7 @@ func (a *UserNamePasswordClientAuthenticator) ClientAuthenticate(conn *SocksConn
 }
 
 func (d *SocksDialer) Dial(address string) (conn *SocksConn, err error) {
+	log.Printf("address: %s", address)
 	c, err := net.DialTimeout("tcp", address, d.Timeout)
 	if err != nil {
 		return
