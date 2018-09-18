@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"time"
 )
@@ -109,7 +108,6 @@ func (a *UserNamePasswordClientAuthenticator) ClientAuthenticate(conn *SocksConn
 }
 
 func (d *SocksDialer) Dial(address string) (conn *SocksConn, err error) {
-	log.Printf("address: %s", address)
 	c, err := net.DialTimeout("tcp", address, d.Timeout)
 	if err != nil {
 		return

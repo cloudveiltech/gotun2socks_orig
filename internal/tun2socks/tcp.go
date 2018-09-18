@@ -35,11 +35,11 @@ const (
 
 	MAX_RECV_WINDOW int = 65535
 	MAX_SEND_WINDOW int = 65535
-)
-const {
-	PROXY_TYPE_HTTP = 0
+
+	PROXY_TYPE_HTTP   = 0
 	PROXY_TYPE_SOCKS5 = 1
-}
+)
+
 type tcpConnTrack struct {
 	t2s *Tun2Socks
 	id  string
@@ -53,9 +53,9 @@ type tcpConnTrack struct {
 	quitByOther  chan bool
 
 	localSocksAddr string
-	proxyType int
+	proxyType      int
 
-	socksConn      *gosocks.SocksConn
+	socksConn *gosocks.SocksConn
 
 	// tcp context
 	state tcpState
@@ -77,6 +77,7 @@ type tcpConnTrack struct {
 	remoteIP   net.IP
 	localPort  uint16
 	remotePort uint16
+	uid        int
 }
 
 var (
@@ -406,7 +407,7 @@ func (tt *tcpConnTrack) stateClosed(syn *tcpPacket) (continu bool, release bool)
 	var e error
 	for i := 0; i < 2; i++ {
 		if tt.remotePort == 80 || tt.remotePort == 443 {
-			tt.socksConn, e = dialLocalSocks(tt.localSocksAddr) //only 80 and 443 goes to proxy
+			tt.socksConn, e = dialTransaprent(tt.localSocksAddr) //dialLocalSocks(tt.localSocksAddr) //only 80 and 443 goes to proxy
 		} else {
 			remoteIpPort := fmt.Sprintf("%s:%d", tt.remoteIP.String(), tt.remotePort)
 			tt.socksConn, e = dialTransaprent(remoteIpPort)

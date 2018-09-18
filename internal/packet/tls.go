@@ -24,7 +24,7 @@ var TLSHeaderLength = 5
  * jumble of bits. This will take an incoming TLS Client Hello (including
  * all the fuzzy bits at the beginning of it - fresh out of the socket) and
  * go ahead and give us the SNI Name they want. */
-func GetHostname(data []byte) (string, error) {
+func GetHostnameTls(data []byte) (string, error) {
 	if len(data) == 0 || data[0] != 0x16 {
 		return "", fmt.Errorf("Doesn't look like a TLS Client Hello")
 	}
