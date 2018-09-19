@@ -19,8 +19,8 @@ func Run(descriptor int) {
 	var tunAddr string = "10.0.0.2"
 	var tunGW string = "10.0.0.1"
 	var tunDNS string = "8.8.8.8,8.8.4.4"
-	var localSocksAddr string = "192.168.100.4:8888" // "172.104.6.115:10901"
-	var publicOnly bool = true
+	var localSocksAddr string = "172.104.6.115:8099"
+	var publicOnly bool = false
 	var enableDnsCache bool = true
 
 	dnsServers := strings.Split(tunDNS, ",")

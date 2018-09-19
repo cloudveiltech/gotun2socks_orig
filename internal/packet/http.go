@@ -23,9 +23,12 @@ func GetHostnamePlainHttp(data []byte) (string, error) {
 	return strings.TrimSpace(string(data[start+len(hostString) : end])), nil
 }
 
-func (tcp *TCP) PatchHostForPlainHttp() {
+func (tcp *TCP) PatchHostForPlainHttp() []byte {
+	if tcp.DstPort != 80 { //only http
+		return tcp.Payload
+	}
 	if len(tcp.Hostname) == 0 {
-		return
+		return tcp.Payload
 	}
 
 	//GET POST PUT DELETE HEAD OPTIONS PATCH
@@ -49,7 +52,7 @@ func (tcp *TCP) PatchHostForPlainHttp() {
 	}
 
 	if wordIndex < 0 {
-		return
+		return tcp.Payload
 	}
 
 	var wordLen = len(word)
@@ -60,7 +63,7 @@ func (tcp *TCP) PatchHostForPlainHttp() {
 		tcp.Payload[index1+3] == 'p' &&
 		tcp.Payload[index1+4] == ':' {
 		//already patched
-		return
+		return tcp.Payload
 	}
 
 	httpHost := []byte("http://" + tcp.Hostname)
@@ -73,7 +76,7 @@ func (tcp *TCP) PatchHostForPlainHttp() {
 	copy(newPayLoad[index1:index1+httpHostLen], httpHost[:])
 	copy(newPayLoad[index1+httpHostLen:], tcp.Payload[index1:])
 
-	tcp.Payload = newPayLoad
+	return newPayLoad
 }
 
 func findStringInData(data []byte, stringToFind string, startIndex int) int {

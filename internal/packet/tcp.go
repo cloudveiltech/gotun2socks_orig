@@ -29,7 +29,6 @@ type TCP struct {
 	Padding                                    []byte
 	Payload                                    []byte
 	Hostname                                   string
-	ConnectSent                                bool
 	headerLength                               int
 }
 
@@ -96,7 +95,6 @@ func ParseTCP(pkt []byte, tcp *TCP) error {
 	tcp.Payload = pkt[dataStart:]
 
 	if tcp.DstPort == 443 {
-		tcp.ConnectSent = false
 		hostname, err := GetHostnameTls(tcp.Payload)
 		if err == nil {
 			tcp.Hostname = hostname
@@ -108,10 +106,8 @@ func ParseTCP(pkt []byte, tcp *TCP) error {
 			if err == nil {
 				tcp.Hostname = hostname
 				log.Printf("Hostname plain is %s", hostname)
-				tcp.PatchHostForPlainHttp()
 			}
 		}
-		tcp.ConnectSent = true
 	}
 
 	// From here on, data points just to the header options.

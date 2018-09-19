@@ -38,6 +38,10 @@ const (
 
 	PROXY_TYPE_HTTP   = 0
 	PROXY_TYPE_SOCKS5 = 1
+
+	CONNECT_NOT_SENT    = -1
+	CONNECT_SENT        = 0
+	CONNECT_ESTABLISHED = 1
 )
 
 type tcpConnTrack struct {
@@ -51,6 +55,8 @@ type tcpConnTrack struct {
 	socksCloseCh chan bool
 	quitBySelf   chan bool
 	quitByOther  chan bool
+
+	connectState int
 
 	localSocksAddr string
 	proxyType      int
@@ -466,15 +472,34 @@ func (tt *tcpConnTrack) callSocks(dstIP net.IP, dstPort uint16, conn net.Conn, c
 	return nil
 }
 
+func (tt *tcpConnTrack) callHttpProxyConnect(conn net.Conn, dstIp net.IP, tcp *packet.TCP) error {
+	//"CONNECT %s:443 HTTP/1.1\r\nProxy-Authorization: Basic %s\r\nConnection: close\r\n\r\n",
+	if len(tcp.Hostname) == 0 {
+		tcp.Hostname = dstIp.String()
+	}
+	connectString := fmt.Sprintf("CONNECT %s:443 HTTP/1.1\r\n\r\n", tcp.Hostname)
+	log.Printf("%s", connectString)
+	_, err := conn.Write([]byte(connectString))
+	if err != nil {
+		log.Println(err)
+		return fmt.Errorf("Can't connect to proxy")
+	}
+
+	return nil
+}
+
 func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn, readCh chan<- []byte, writeCh <-chan *tcpPacket, closeCh chan bool) {
 	if dstPort == 443 || dstPort == 80 {
-		e := tt.callSocks(dstIP, dstPort, conn, closeCh)
-		if e != nil {
-			return
-		}
-
+		/*		e := tt.callSocks(dstIP, dstPort, conn, closeCh)
+				if e != nil {
+					return
+				}
+		*/
 		uid := FindAppUid(tt.localIP.String(), tt.localPort, dstIP.String(), dstPort)
 		log.Printf("UID for TCP request from %s:%d to %s:%d is %d", tt.localIP.String(), tt.localPort, dstIP.String(), dstPort, uid)
+	}
+	if dstPort != 443 {
+		tt.connectState = CONNECT_ESTABLISHED
 	}
 	// writer
 	go func() {
@@ -484,7 +509,16 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 			case <-closeCh:
 				break loop
 			case pkt := <-writeCh:
-				conn.Write(pkt.tcp.Payload)
+				if tt.connectState == CONNECT_NOT_SENT {
+					err := tt.callHttpProxyConnect(conn, dstIP, pkt.tcp)
+					if err != nil {
+						log.Printf("Can't sent connect request")
+					}
+
+					tt.connectState = CONNECT_SENT
+				}
+
+				conn.Write(pkt.tcp.PatchHostForPlainHttp())
 
 				// increase window when processed
 				wnd := atomic.LoadInt32(&tt.recvWindow)
@@ -523,25 +557,30 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 		}
 		// tt.sendWndCond.L.Unlock()
 
-		n, e := conn.Read(buf[:cur])
-		if e != nil {
-			log.Printf("error to read from socks: %s", e)
-			conn.Close()
-			break
-		} else {
-			b := make([]byte, n)
-			copy(b, buf[:n])
-			readCh <- b
+		if tt.connectState == CONNECT_SENT {
+			conn.Read(buf[:])
+			tt.connectState = CONNECT_ESTABLISHED
+		} else if tt.connectState == CONNECT_ESTABLISHED {
+			n, e := conn.Read(buf[:cur])
+			if e != nil {
+				log.Printf("error to read from socks: %s", e)
+				conn.Close()
+				break
+			} else {
+				b := make([]byte, n)
+				copy(b, buf[:n])
+				readCh <- b
 
-			// tt.sendWndCond.L.Lock()
-			nxt := wnd - int32(n)
-			if nxt < 0 {
-				nxt = 0
+				// tt.sendWndCond.L.Lock()
+				nxt := wnd - int32(n)
+				if nxt < 0 {
+					nxt = 0
+				}
+				// if sendWindow does not equal to wnd, it is already updated by a
+				// received pkt from TUN
+				atomic.CompareAndSwapInt32(&tt.sendWindow, wnd, nxt)
+				// tt.sendWndCond.L.Unlock()
 			}
-			// if sendWindow does not equal to wnd, it is already updated by a
-			// received pkt from TUN
-			atomic.CompareAndSwapInt32(&tt.sendWindow, wnd, nxt)
-			// tt.sendWndCond.L.Unlock()
 		}
 	}
 	close(closeCh)
@@ -807,6 +846,7 @@ func (t2s *Tun2Socks) createTCPConnTrack(id string, ip *packet.IPv4, tcp *packet
 		socksCloseCh: make(chan bool),
 		quitBySelf:   make(chan bool),
 		quitByOther:  make(chan bool),
+		connectState: CONNECT_NOT_SENT,
 
 		sendWindow:  int32(MAX_SEND_WINDOW),
 		recvWindow:  int32(MAX_RECV_WINDOW),
