@@ -13,6 +13,9 @@ import (
 
 const (
 	MTU = 15000
+
+	PROXY_TYPE_SOCKS = 1
+	PROXY_TYPE_HTTP  = 2
 )
 
 var (
@@ -29,21 +32,29 @@ var (
 		Timeout: 10 * time.Second,
 	}
 
-	_, ip1, _ = net.ParseCIDR("10.0.0.0/8")
-	_, ip2, _ = net.ParseCIDR("172.16.0.0/12")
-	_, ip3, _ = net.ParseCIDR("192.168.0.0/24")
+	_, ip1, _ = net.ParseCIDR("10.0.0.0/24")
+	_, ip2, _ = net.ParseCIDR("172.16.0.0/20")
+	_, ip3, _ = net.ParseCIDR("192.168.0.0/16")
 )
 
+type ProxyServer struct {
+	ProxyType  int
+	IpAddress  string
+	AuthHeader string
+	Login      string
+	Password   string
+}
+
 type Tun2Socks struct {
-	dev            io.ReadWriteCloser
-	localSocksAddr string
-	publicOnly     bool
+	dev io.ReadWriteCloser
 
 	writerStopCh chan bool
 	writeCh      chan interface{}
 
-	tcpConnTrackLock sync.Mutex
-	tcpConnTrackMap  map[string]*tcpConnTrack
+	tcpConnTrackLock   sync.Mutex
+	tcpConnTrackMap    map[string]*tcpConnTrack
+	proxyServerMap     map[int]*ProxyServer
+	defaultProxyServer *ProxyServer
 
 	udpConnTrackLock sync.Mutex
 	udpConnTrackMap  map[string]*udpConnTrack
@@ -58,23 +69,27 @@ func isPrivate(ip net.IP) bool {
 	return ip1.Contains(ip) || ip2.Contains(ip) || ip3.Contains(ip)
 }
 
-func dialLocalSocks(localAddr string) (*gosocks.SocksConn, error) {
-	return localSocksDialer.Dial(localAddr)
+func dialLocalSocks(proxyServer *ProxyServer) (*gosocks.SocksConn, error) {
+	localSocksDialer.Auth = &gosocks.UserNamePasswordClientAuthenticator{
+		UserName: proxyServer.Login,
+		Password: proxyServer.Password,
+	}
+
+	return localSocksDialer.Dial(proxyServer.IpAddress)
 }
 
 func dialTransaprent(localAddr string) (*gosocks.SocksConn, error) {
 	return directDialer.Dial(localAddr)
 }
 
-func New(dev io.ReadWriteCloser, localSocksAddr string, dnsServers []string, publicOnly bool, enableDnsCache bool) *Tun2Socks {
+func New(dev io.ReadWriteCloser, dnsServers []string, enableDnsCache bool) *Tun2Socks {
 	t2s := &Tun2Socks{
 		dev:             dev,
-		localSocksAddr:  localSocksAddr,
-		publicOnly:      publicOnly,
 		writerStopCh:    make(chan bool, 10),
 		writeCh:         make(chan interface{}, 10000),
 		tcpConnTrackMap: make(map[string]*tcpConnTrack),
 		udpConnTrackMap: make(map[string]*udpConnTrack),
+		proxyServerMap:  make(map[int]*ProxyServer),
 		dnsServers:      dnsServers,
 	}
 	if enableDnsCache {
@@ -83,6 +98,14 @@ func New(dev io.ReadWriteCloser, localSocksAddr string, dnsServers []string, pub
 		}
 	}
 	return t2s
+}
+
+func (t2s *Tun2Socks) SetDefaultProxy(proxy *ProxyServer) {
+	t2s.defaultProxyServer = proxy
+}
+
+func (t2s *Tun2Socks) SetProxyServers(proxyServerMap map[int]*ProxyServer) {
+	t2s.proxyServerMap = proxyServerMap
 }
 
 func (t2s *Tun2Socks) Stop() {
@@ -153,14 +176,6 @@ func (t2s *Tun2Socks) Run() {
 			log.Printf("error to parse IPv4: %s", e)
 			continue
 		}
-		if t2s.publicOnly {
-			if !ip.DstIP.IsGlobalUnicast() {
-				continue
-			}
-			if isPrivate(ip.DstIP) {
-				continue
-			}
-		}
 
 		if ip.Flags&0x1 != 0 || ip.FragOffset != 0 {
 			last, pkt, raw := procFragment(&ip, data)
@@ -171,7 +186,6 @@ func (t2s *Tun2Socks) Run() {
 				continue
 			}
 		}
-
 		switch ip.Protocol {
 		case packet.IPProtocolTCP:
 			e = packet.ParseTCP(ip.Payload, &tcp)

@@ -32,8 +32,7 @@ type udpConnTrack struct {
 	fromTunCh   chan *udpPacket
 	socksClosed chan bool
 
-	localSocksAddr string
-	socksConn      *gosocks.SocksConn
+	socksConn *gosocks.SocksConn
 
 	localIP    net.IP
 	remoteIP   net.IP
@@ -372,8 +371,6 @@ func (t2s *Tun2Socks) getUDPConnTrack(id string, ip *packet.IPv4, udp *packet.UD
 
 			localPort:  udp.SrcPort,
 			remotePort: udp.DstPort,
-
-			localSocksAddr: t2s.localSocksAddr,
 		}
 		track.localIP = make(net.IP, len(ip.SrcIP))
 		copy(track.localIP, ip.SrcIP)

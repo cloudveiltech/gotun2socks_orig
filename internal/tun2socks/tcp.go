@@ -36,9 +36,6 @@ const (
 	MAX_RECV_WINDOW int = 65535
 	MAX_SEND_WINDOW int = 65535
 
-	PROXY_TYPE_HTTP   = 0
-	PROXY_TYPE_SOCKS5 = 1
-
 	CONNECT_NOT_SENT    = -1
 	CONNECT_SENT        = 0
 	CONNECT_ESTABLISHED = 1
@@ -57,9 +54,6 @@ type tcpConnTrack struct {
 	quitByOther  chan bool
 
 	connectState int
-
-	localSocksAddr string
-	proxyType      int
 
 	socksConn *gosocks.SocksConn
 
@@ -84,6 +78,8 @@ type tcpConnTrack struct {
 	localPort  uint16
 	remotePort uint16
 	uid        int
+
+	proxyServer *ProxyServer
 }
 
 var (
@@ -184,7 +180,9 @@ func copyTCPPacket(raw []byte, ip *packet.IPv4, tcp *packet.TCP) *tcpPacket {
 }
 
 func tcpConnID(ip *packet.IPv4, tcp *packet.TCP) string {
+	uid := FindAppUid(ip.SrcIP.String(), tcp.SrcPort, ip.DstIP.String(), tcp.DstPort)
 	return strings.Join([]string{
+		fmt.Sprintf("%d", uid),
 		ip.SrcIP.String(),
 		fmt.Sprintf("%d", tcp.SrcPort),
 		ip.DstIP.String(),
@@ -412,12 +410,16 @@ func (tt *tcpConnTrack) payload(data []byte) {
 func (tt *tcpConnTrack) stateClosed(syn *tcpPacket) (continu bool, release bool) {
 	var e error
 	for i := 0; i < 2; i++ {
-		if tt.remotePort == 80 || tt.remotePort == 443 {
-			tt.socksConn, e = dialTransaprent(tt.localSocksAddr) //dialLocalSocks(tt.localSocksAddr) //only 80 and 443 goes to proxy
-		} else {
-			remoteIpPort := fmt.Sprintf("%s:%d", tt.remoteIP.String(), tt.remotePort)
-			tt.socksConn, e = dialTransaprent(remoteIpPort)
-		}
+		//	if !isPrivate(tt.remoteIP) && (tt.remotePort == 80 || tt.remotePort == 443) {
+		//		if tt.proxyServer.ProxyType == PROXY_TYPE_SOCKS {
+		//			tt.socksConn, e = dialLocalSocks(tt.proxyServer) //only 80 and 443 goes to proxy
+		//		} else {
+		//			tt.socksConn, e = dialTransaprent(tt.proxyServer.IpAddress)
+		//		}
+		//	} else {
+		remoteIpPort := fmt.Sprintf("%s:%d", tt.remoteIP.String(), tt.remotePort)
+		tt.socksConn, e = dialTransaprent(remoteIpPort)
+		//	}
 
 		if e != nil {
 			log.Printf("fail to connect SOCKS proxy: %s", e)
@@ -477,7 +479,7 @@ func (tt *tcpConnTrack) callHttpProxyConnect(conn net.Conn, dstIp net.IP, tcp *p
 	if len(tcp.Hostname) == 0 {
 		tcp.Hostname = dstIp.String()
 	}
-	connectString := fmt.Sprintf("CONNECT %s:443 HTTP/1.1\r\n\r\n", tcp.Hostname)
+	connectString := fmt.Sprintf("CONNECT %s:443 HTTP/1.1\r\nProxy-Authorization: Basic %s\r\nConnection: close\r\n\r\n", tcp.Hostname, tt.proxyServer.AuthHeader)
 	log.Printf("%s", connectString)
 	_, err := conn.Write([]byte(connectString))
 	if err != nil {
@@ -488,17 +490,29 @@ func (tt *tcpConnTrack) callHttpProxyConnect(conn net.Conn, dstIp net.IP, tcp *p
 	return nil
 }
 
+func (tt *tcpConnTrack) loadProxyConfig() {
+	proxyServer, ok := tt.t2s.proxyServerMap[tt.uid]
+	if !ok {
+		tt.proxyServer = tt.t2s.defaultProxyServer
+	} else {
+		tt.proxyServer = proxyServer
+	}
+}
+
 func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn, readCh chan<- []byte, writeCh <-chan *tcpPacket, closeCh chan bool) {
-	if dstPort == 443 || dstPort == 80 {
-		/*		e := tt.callSocks(dstIP, dstPort, conn, closeCh)
-				if e != nil {
-					return
-				}
-		*/
+	if !isPrivate(dstIP) && (dstPort == 443 || dstPort == 80) {
 		uid := FindAppUid(tt.localIP.String(), tt.localPort, dstIP.String(), dstPort)
 		log.Printf("UID for TCP request from %s:%d to %s:%d is %d", tt.localIP.String(), tt.localPort, dstIP.String(), dstPort, uid)
+		tt.uid = uid
+		tt.loadProxyConfig()
+		if tt.proxyServer.ProxyType == PROXY_TYPE_SOCKS {
+			e := tt.callSocks(dstIP, dstPort, conn, closeCh)
+			if e != nil {
+				return
+			}
+		}
 	}
-	if dstPort != 443 {
+	if tt.proxyServer.ProxyType != PROXY_TYPE_HTTP || dstPort != 443 || isPrivate(dstIP) {
 		tt.connectState = CONNECT_ESTABLISHED
 	}
 	// writer
@@ -509,16 +523,20 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 			case <-closeCh:
 				break loop
 			case pkt := <-writeCh:
-				if tt.connectState == CONNECT_NOT_SENT {
+			/*	if tt.connectState == CONNECT_NOT_SENT {
 					err := tt.callHttpProxyConnect(conn, dstIP, pkt.tcp)
 					if err != nil {
-						log.Printf("Can't sent connect request")
+						log.Printf("Can't send connect request")
 					}
 
 					tt.connectState = CONNECT_SENT
-				}
+				}*/
 
-				conn.Write(pkt.tcp.PatchHostForPlainHttp())
+				//		if tt.proxyServer.ProxyType == PROXY_TYPE_HTTP {
+				//		conn.Write(pkt.tcp.PatchHostForPlainHttp(tt.proxyServer.AuthHeader))
+				//		} else {
+				conn.Write(pkt.tcp.Payload)
+				//	}
 
 				// increase window when processed
 				wnd := atomic.LoadInt32(&tt.recvWindow)
@@ -852,11 +870,13 @@ func (t2s *Tun2Socks) createTCPConnTrack(id string, ip *packet.IPv4, tcp *packet
 		recvWindow:  int32(MAX_RECV_WINDOW),
 		sendWndCond: &sync.Cond{L: &sync.Mutex{}},
 
-		localPort:      tcp.SrcPort,
-		remotePort:     tcp.DstPort,
-		localSocksAddr: t2s.localSocksAddr,
-		state:          CLOSED,
+		localPort:  tcp.SrcPort,
+		remotePort: tcp.DstPort,
+		state:      CLOSED,
+
+		uid: -1,
 	}
+
 	track.localIP = make(net.IP, len(ip.SrcIP))
 	copy(track.localIP, ip.SrcIP)
 	track.remoteIP = make(net.IP, len(ip.DstIP))

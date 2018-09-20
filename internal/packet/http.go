@@ -23,7 +23,7 @@ func GetHostnamePlainHttp(data []byte) (string, error) {
 	return strings.TrimSpace(string(data[start+len(hostString) : end])), nil
 }
 
-func (tcp *TCP) PatchHostForPlainHttp() []byte {
+func (tcp *TCP) PatchHostForPlainHttp(proxyAuthHeader string) []byte {
 	if tcp.DstPort != 80 { //only http
 		return tcp.Payload
 	}
@@ -69,12 +69,22 @@ func (tcp *TCP) PatchHostForPlainHttp() []byte {
 	httpHost := []byte("http://" + tcp.Hostname)
 	httpHostLen := len(httpHost)
 
-	newPayloadLength := len(tcp.Payload) + httpHostLen
+	authHeader := []byte(fmt.Sprintf("Proxy-Authorization: Basic %s", proxyAuthHeader))
+	authHeaderLength := len(authHeader)
+
+	newPayloadLength := len(tcp.Payload) + httpHostLen + authHeaderLength
 	newPayLoad := make([]byte, newPayloadLength, newPayloadLength)
 
+	headerEndIndex := findStringInData(tcp.Payload, "\r\n\r\n", index1)
+
+	//host
 	copy(newPayLoad[:index1], tcp.Payload[:index1])
 	copy(newPayLoad[index1:index1+httpHostLen], httpHost[:])
-	copy(newPayLoad[index1+httpHostLen:], tcp.Payload[index1:])
+	copy(newPayLoad[index1+httpHostLen:headerEndIndex], tcp.Payload[index1:headerEndIndex])
+
+	//auth
+	copy(newPayLoad[headerEndIndex:headerEndIndex+authHeaderLength], authHeader[:])
+	copy(newPayLoad[headerEndIndex+authHeaderLength:], tcp.Payload[headerEndIndex:])
 
 	return newPayLoad
 }
