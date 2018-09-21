@@ -1,7 +1,6 @@
 package tun
 
 import (
-	"errors"
 	"io"
 	"log"
 	"net"
@@ -80,9 +79,7 @@ type tunDev struct {
 
 func (dev *tunDev) Read(data []byte) (int, error) {
 	n, e := dev.f.Read(data)
-	if e == nil && isStopMarker(data[:n], dev.addrIP, dev.gwIP) {
-		return 0, errors.New("received stop marker")
-	}
+
 	return n, e
 }
 

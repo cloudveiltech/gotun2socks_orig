@@ -2,6 +2,7 @@ package packet
 
 import (
 	"fmt"
+	"log"
 	"strings"
 )
 
@@ -69,22 +70,22 @@ func (tcp *TCP) PatchHostForPlainHttp(proxyAuthHeader string) []byte {
 	httpHost := []byte("http://" + tcp.Hostname)
 	httpHostLen := len(httpHost)
 
-	authHeader := []byte(fmt.Sprintf("Proxy-Authorization: Basic %s", proxyAuthHeader))
+	authHeader := []byte(fmt.Sprintf("Proxy-Authorization: Basic %s\r\n", proxyAuthHeader))
 	authHeaderLength := len(authHeader)
 
 	newPayloadLength := len(tcp.Payload) + httpHostLen + authHeaderLength
 	newPayLoad := make([]byte, newPayloadLength, newPayloadLength)
 
-	headerEndIndex := findStringInData(tcp.Payload, "\r\n\r\n", index1)
+	headerEndIndex := findStringInData(tcp.Payload, "\r\n", index1) + 2
+	log.Printf("Header end index is %d", headerEndIndex)
 
 	//host
 	copy(newPayLoad[:index1], tcp.Payload[:index1])
 	copy(newPayLoad[index1:index1+httpHostLen], httpHost[:])
-	copy(newPayLoad[index1+httpHostLen:headerEndIndex], tcp.Payload[index1:headerEndIndex])
-
+	copy(newPayLoad[index1+httpHostLen:headerEndIndex+httpHostLen], tcp.Payload[index1:headerEndIndex])
 	//auth
-	copy(newPayLoad[headerEndIndex:headerEndIndex+authHeaderLength], authHeader[:])
-	copy(newPayLoad[headerEndIndex+authHeaderLength:], tcp.Payload[headerEndIndex:])
+	copy(newPayLoad[headerEndIndex+httpHostLen:headerEndIndex+httpHostLen+authHeaderLength], authHeader[:])
+	copy(newPayLoad[headerEndIndex+httpHostLen+authHeaderLength:], tcp.Payload[headerEndIndex:])
 
 	return newPayLoad
 }

@@ -16,11 +16,11 @@ func SayHi() string {
 	return "hi from tun2http!"
 }
 
-func Init() {
-	proxyServerMap = make(map[int]*tun2socks.ProxyServer)
-}
-
 func AddProxyServer(uid int, ipPort string, proxyType int, httpAuthHeader string, login string, password string) {
+	if proxyServerMap == nil {
+		proxyServerMap = make(map[int]*tun2socks.ProxyServer)
+	}
+
 	proxy := &tun2socks.ProxyServer{
 		ProxyType:  proxyType,
 		IpAddress:  ipPort,
@@ -52,7 +52,7 @@ func Run(descriptor int) {
 
 	dnsServers := strings.Split(tunDNS, ",")
 	f := tun.NewTunDev(uintptr(descriptor), "tun0", tunAddr, tunGW)
-	tun2SocksInstance := tun2socks.New(f, dnsServers, enableDnsCache)
+	tun2SocksInstance = tun2socks.New(f, dnsServers, enableDnsCache)
 
 	tun2SocksInstance.SetDefaultProxy(defaultProxy)
 	tun2SocksInstance.SetProxyServers(proxyServerMap)

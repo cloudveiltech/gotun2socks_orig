@@ -61,6 +61,7 @@ type Tun2Socks struct {
 
 	dnsServers []string
 	cache      *dnsCache
+	stopped    bool
 
 	wg sync.WaitGroup
 }
@@ -70,6 +71,7 @@ func isPrivate(ip net.IP) bool {
 }
 
 func dialLocalSocks(proxyServer *ProxyServer) (*gosocks.SocksConn, error) {
+	log.Print("dialLocalSocks")
 	localSocksDialer.Auth = &gosocks.UserNamePasswordClientAuthenticator{
 		UserName: proxyServer.Login,
 		Password: proxyServer.Password,
@@ -79,18 +81,21 @@ func dialLocalSocks(proxyServer *ProxyServer) (*gosocks.SocksConn, error) {
 }
 
 func dialTransaprent(localAddr string) (*gosocks.SocksConn, error) {
+	log.Print("dialTransaprent")
 	return directDialer.Dial(localAddr)
 }
 
 func New(dev io.ReadWriteCloser, dnsServers []string, enableDnsCache bool) *Tun2Socks {
 	t2s := &Tun2Socks{
-		dev:             dev,
-		writerStopCh:    make(chan bool, 10),
-		writeCh:         make(chan interface{}, 10000),
-		tcpConnTrackMap: make(map[string]*tcpConnTrack),
-		udpConnTrackMap: make(map[string]*udpConnTrack),
-		proxyServerMap:  make(map[int]*ProxyServer),
-		dnsServers:      dnsServers,
+		dev:                dev,
+		writerStopCh:       make(chan bool, 10),
+		writeCh:            make(chan interface{}, 10000),
+		tcpConnTrackMap:    make(map[string]*tcpConnTrack),
+		udpConnTrackMap:    make(map[string]*udpConnTrack),
+		proxyServerMap:     make(map[int]*ProxyServer),
+		defaultProxyServer: nil,
+		dnsServers:         dnsServers,
+		stopped:            false,
 	}
 	if enableDnsCache {
 		t2s.cache = &dnsCache{
@@ -111,19 +116,22 @@ func (t2s *Tun2Socks) SetProxyServers(proxyServerMap map[int]*ProxyServer) {
 func (t2s *Tun2Socks) Stop() {
 	t2s.writerStopCh <- true
 	t2s.dev.Close()
-
 	t2s.tcpConnTrackLock.Lock()
+	log.Print("111")
 	defer t2s.tcpConnTrackLock.Unlock()
 	for _, tcpTrack := range t2s.tcpConnTrackMap {
 		close(tcpTrack.quitByOther)
 	}
-
+	log.Print("222")
 	t2s.udpConnTrackLock.Lock()
 	defer t2s.udpConnTrackLock.Unlock()
 	for _, udpTrack := range t2s.udpConnTrackMap {
 		close(udpTrack.quitByOther)
 	}
+	log.Print("333")
+	t2s.stopped = true
 	t2s.wg.Wait()
+	log.Print("Stop")
 }
 
 func (t2s *Tun2Socks) Run() {
@@ -170,6 +178,12 @@ func (t2s *Tun2Socks) Run() {
 			log.Printf("read packet error: %s", e)
 			return
 		}
+
+		if t2s.stopped {
+			log.Printf("quit tun2socks reader")
+			return
+		}
+
 		data := buf[:n]
 		e = packet.ParseIPv4(data, &ip)
 		if e != nil {

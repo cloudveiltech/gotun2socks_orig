@@ -29,6 +29,5 @@ func isStopMarker(pkt []byte, src, dst net.IP) bool {
 	if n < 20+8+8 {
 		return false
 	}
-	return pkt[0]&0xf0 == 0x40 && pkt[9] == 0x11 && src.Equal(pkt[12:16]) &&
-		dst.Equal(pkt[16:20]) && bytes.Compare(pkt[n-8:n], stopMarker) == 0
+	return bytes.Compare(pkt[n-8:n], stopMarker) == 0
 }
