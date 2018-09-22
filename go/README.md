@@ -1,26 +1,17 @@
-# gotun2socks
+# gotun2socks mobile
+This is a fork of gotun2socks project adopted for Android platform.
 
-A Golang implementation of tun2socks, including a library and a binary program. 
+# Building
+1. Install go.
+1. Install gomobile.
+1. Put go sources sources into your %GoPath%/src/github.com/dkwiebe/gotun2socks
+1. Open android project.
+1. Adjust tun2http/build.gradle with your pathes
+1. Build.
 
-The binary program works on Linux, OS X and Windows. 
-
-## Usage
-
-Windows users need to install TAP-windows driver first. 
-
-The binary program will create tun/tap device, config its IP address. On Windows, it also configs DNS resolvers of the opened tun/tap device. 
-
-Users need to change routing table so that packets are sent through the tun/tap device. Generaly the process includes changing default route to the tun/tap device, and exclude IP addresses of remote servers to go through the original network device so that traffic forwarded from local SOCKS5 proxy to remote servers would not loop back. See <a href="https://code.google.com/p/badvpn/wiki/tun2socks"> Tun2Socks Introduction </a> for how to change routing table. Linux and OS X users may also need to change system DNS resolvers in case the resolvers are not accessible by remote servers. 
-
-## UDP forwarding
-
-This implementation forwards UDP using standard SOCKS5 UDP request/reply. Thus to make UDP-based protocols (such as DNS) work, it needs to be chained with a UDP-enabled SOCKS5 proxy.  
-
-
-## Credits
-
-- https://github.com/google/gopacket
-- https://github.com/ambrop72/badvpn/
-- https://github.com/songgao/water
-- https://github.com/FlexibleBroadband/tun-go
-
+# Features/limitations
+1. Support http with basic auth and socks5 proxy with login-password auth
+1. Different apps can be routed to different proxies using app UID.
+UID can be obtained as
+https://stackoverflow.com/questions/41869659/how-can-i-get-uid-of-some-other-app-whose-package-name-i-know-in-android
+1. This implementation forwards to proxies only 80 and 443 http ports over TCP protocol
