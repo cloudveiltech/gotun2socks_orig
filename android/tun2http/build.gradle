@@ -15,11 +15,13 @@ gobind {
     pkg = "github.com/dkwiebe/gotun2socks"
 
     /* GOPATH where the Go package is; check `go env` */
-    GOPATH = ""
+    GOPATH = "C:/Users/dgora/go"
 
     /* Absolute path to the go binary */
     GO = "c:/Go"
     GOMOBILEFLAGS = "-ldflags=\"-s -w\""
+    //GOMOBILEFLAGS = "-gcflags=\"-v\""
+
     /* Optionally, set the absolute path to the gomobile binary if the
     /* gomobile binary is not located in the GOPATH's bin directory. */
     //  GOMOBILE = "c:/Users/dgora/go/bin/gomobile.exe -ldflags=\"-s -w\""

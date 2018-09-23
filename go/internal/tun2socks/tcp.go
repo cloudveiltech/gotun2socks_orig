@@ -55,6 +55,8 @@ type tcpConnTrack struct {
 
 	connectState int
 
+	lastPacketTime time.Time
+
 	socksConn *gosocks.SocksConn
 
 	// tcp context
@@ -71,7 +73,7 @@ type tcpConnTrack struct {
 	recvWindow  int32
 	sendWindow  int32
 	sendWndCond *sync.Cond
-	// recvWndCond *sync.Cond
+	recvWndCond *sync.Cond
 
 	localIP    net.IP
 	remoteIP   net.IP
@@ -183,8 +185,6 @@ func tcpConnID(ip *packet.IPv4, tcp *packet.TCP) string {
 	uid := FindAppUid(ip.SrcIP.String(), tcp.SrcPort, ip.DstIP.String(), tcp.DstPort)
 	return strings.Join([]string{
 		fmt.Sprintf("%d", uid),
-		ip.SrcIP.String(),
-		fmt.Sprintf("%d", tcp.SrcPort),
 		ip.DstIP.String(),
 		fmt.Sprintf("%d", tcp.DstPort),
 	}, "|")
@@ -408,37 +408,41 @@ func (tt *tcpConnTrack) payload(data []byte) {
 // stateClosed receives a SYN packet, tries to connect the socks proxy, gives a
 // SYN/ACK if success, otherwise RST
 func (tt *tcpConnTrack) stateClosed(syn *tcpPacket) (continu bool, release bool) {
-	//log.Printf("stateClosed")
 	var e error
-	for i := 0; i < 2; i++ {
-		if !isPrivate(tt.remoteIP) && (tt.remotePort == 80 || tt.remotePort == 443) {
-			if tt.uid == -1 {
-				log.Printf("stateClosed, loading uid and proxy")
-				uid := FindAppUid(syn.ip.SrcIP.String(), syn.tcp.SrcPort, syn.ip.DstIP.String(), syn.tcp.DstPort)
-				tt.uid = uid
-				tt.loadProxyConfig()
-			}
+	if !isPrivate(tt.remoteIP) && (tt.remotePort == 80 || tt.remotePort == 443) {
+		if tt.uid == -1 {
+			log.Printf("initiating connection, loading uid and proxy")
+			uid := FindAppUid(tt.localIP.String(), tt.localPort, tt.remoteIP.String(), tt.remotePort)
+			tt.uid = uid
+			tt.loadProxyConfig()
+		}
 
-			if tt.proxyServer.ProxyType == PROXY_TYPE_SOCKS {
-				tt.socksConn, e = dialLocalSocks(tt.proxyServer) //only 80 and 443 goes to proxy
-			} else {
-				tt.socksConn, e = dialTransaprent(tt.proxyServer.IpAddress)
+		if tt.proxyServer.ProxyType == PROXY_TYPE_SOCKS {
+			tt.socksConn, e = dialLocalSocks(tt.proxyServer) //only 80 and 443 goes to proxy
+		} else if tt.proxyServer.ProxyType == PROXY_TYPE_HTTP {
+			tt.socksConn, e = dialTransaprent(tt.proxyServer.IpAddress)
+			if len(syn.tcp.Hostname) > 0 && tt.proxyServer.ProxyType == PROXY_TYPE_HTTP && tt.remotePort == 443 {
+				log.Print("Connect using state closed")
+				tt.callHttpProxyConnect(tt.socksConn, tt.remoteIP, syn.tcp)
 			}
 		} else {
 			remoteIpPort := fmt.Sprintf("%s:%d", tt.remoteIP.String(), tt.remotePort)
 			tt.socksConn, e = dialTransaprent(remoteIpPort)
 		}
-
-		if e != nil {
-			log.Printf("fail to connect SOCKS proxy: %s", e)
-		} else {
-			// no timeout
-			tt.socksConn.SetDeadline(time.Time{})
-			break
-		}
+	} else {
+		remoteIpPort := fmt.Sprintf("%s:%d", tt.remoteIP.String(), tt.remotePort)
+		tt.socksConn, e = dialTransaprent(remoteIpPort)
 	}
 
-	if tt.socksConn == nil {
+	if e != nil {
+		log.Printf("fail to connect SOCKS proxy: %s", e)
+		return
+	} else {
+		// no timeout
+		tt.socksConn.SetDeadline(time.Time{})
+	}
+
+	if tt.socksConn == nil || tt.connectState != CONNECT_NOT_SENT {
 		resp := rstByPacket(syn)
 		tt.toTunCh <- resp.wire
 		// log.Printf("<-- [TCP][%s][RST]", tt.id)
@@ -503,7 +507,8 @@ func (tt *tcpConnTrack) callHttpProxyConnect(conn net.Conn, dstIp net.IP, tcp *p
 }
 
 func (tt *tcpConnTrack) loadProxyConfig() {
-	log.Printf("loadProxyConfig")
+	log.Printf("loadProxyConfig for uid %d", tt.uid)
+
 	proxyServer, ok := tt.t2s.proxyServerMap[tt.uid]
 	if !ok {
 		tt.proxyServer = tt.t2s.defaultProxyServer
@@ -533,6 +538,7 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 	if tt.proxyServer.ProxyType != PROXY_TYPE_HTTP || dstPort != 443 || isPrivate(dstIP) {
 		tt.connectState = CONNECT_ESTABLISHED
 	}
+
 	// writer
 	go func() {
 	loop:
@@ -551,7 +557,14 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 				}
 
 				if tt.proxyServer.ProxyType == PROXY_TYPE_HTTP {
+					if tt.connectState != CONNECT_ESTABLISHED {
+						tt.recvWndCond.L.Lock()
+						log.Printf("Wait for connect response")
+						tt.recvWndCond.Wait()
+						tt.recvWndCond.L.Unlock()
+					}
 					conn.Write(pkt.tcp.PatchHostForPlainHttp(tt.proxyServer.AuthHeader))
+
 				} else {
 					conn.Write(pkt.tcp.Payload)
 				}
@@ -592,10 +605,10 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 			cur = MTU - 40
 		}
 		// tt.sendWndCond.L.Unlock()
-
 		if tt.connectState == CONNECT_SENT {
 			conn.Read(buf[:])
 			tt.connectState = CONNECT_ESTABLISHED
+			tt.recvWndCond.Signal()
 		} else if tt.connectState == CONNECT_ESTABLISHED {
 			n, e := conn.Read(buf[:cur])
 			if e != nil {
@@ -618,6 +631,7 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 				// tt.sendWndCond.L.Unlock()
 			}
 		}
+		tt.recvWndCond.Signal()
 	}
 	close(closeCh)
 }
@@ -790,88 +804,74 @@ func (tt *tcpConnTrack) updateSendWindow(pkt *tcpPacket) {
 }
 
 func (tt *tcpConnTrack) run() {
-	for {
-		var ackTimer *time.Timer
-		var timeout *time.Timer = time.NewTimer(5 * time.Minute)
+	var socksCloseCh chan bool
+	var fromSocksCh chan []byte
+	// enable some channels only when the state is ESTABLISHED
+	if tt.state == ESTABLISHED {
+		socksCloseCh = tt.socksCloseCh
+		fromSocksCh = tt.fromSocksCh
+	}
 
-		var ackTimeout <-chan time.Time
-		var socksCloseCh chan bool
-		var fromSocksCh chan []byte
-		// enable some channels only when the state is ESTABLISHED
-		if tt.state == ESTABLISHED {
-			socksCloseCh = tt.socksCloseCh
-			fromSocksCh = tt.fromSocksCh
-			ackTimer = time.NewTimer(10 * time.Millisecond)
-			ackTimeout = ackTimer.C
+	select {
+	case pkt := <-tt.input:
+		tt.lastPacketTime = time.Now()
+
+		// log.Printf("--> [TCP][%s][%s][%s][seq:%d][ack:%d][payload:%d]", tt.id, tcpstateString(tt.state), tcpflagsString(pkt.tcp), pkt.tcp.Seq, pkt.tcp.Ack, len(pkt.tcp.Payload))
+		var continu, release bool
+
+		tt.updateSendWindow(pkt)
+		switch tt.state {
+		case CLOSED:
+			continu, release = tt.stateClosed(pkt)
+		case SYN_RCVD:
+			continu, release = tt.stateSynRcvd(pkt)
+		case ESTABLISHED:
+			continu, release = tt.stateEstablished(pkt)
+		case FIN_WAIT_1:
+			continu, release = tt.stateFinWait1(pkt)
+		case FIN_WAIT_2:
+			continu, release = tt.stateFinWait2(pkt)
+		case CLOSING:
+			continu, release = tt.stateClosing(pkt)
+		case LAST_ACK:
+			continu, release = tt.stateLastAck(pkt)
 		}
-
-		select {
-		case pkt := <-tt.input:
-			// log.Printf("--> [TCP][%s][%s][%s][seq:%d][ack:%d][payload:%d]", tt.id, tcpstateString(tt.state), tcpflagsString(pkt.tcp), pkt.tcp.Seq, pkt.tcp.Ack, len(pkt.tcp.Payload))
-			var continu, release bool
-
-			tt.updateSendWindow(pkt)
-			switch tt.state {
-			case CLOSED:
-				continu, release = tt.stateClosed(pkt)
-			case SYN_RCVD:
-				continu, release = tt.stateSynRcvd(pkt)
-			case ESTABLISHED:
-				continu, release = tt.stateEstablished(pkt)
-			case FIN_WAIT_1:
-				continu, release = tt.stateFinWait1(pkt)
-			case FIN_WAIT_2:
-				continu, release = tt.stateFinWait2(pkt)
-			case CLOSING:
-				continu, release = tt.stateClosing(pkt)
-			case LAST_ACK:
-				continu, release = tt.stateLastAck(pkt)
-			}
-			if release {
-				releaseTCPPacket(pkt)
-			}
-			if !continu {
-				if tt.socksConn != nil {
-					tt.socksConn.Close()
-				}
-				close(tt.quitBySelf)
-				tt.t2s.clearTCPConnTrack(tt.id)
-				return
-			}
-
-		case <-ackTimeout:
-			if tt.lastAck < tt.rcvNxtSeq {
-				// have something to ack
-				tt.ack()
-			}
-
-		case data := <-fromSocksCh:
-			tt.payload(data)
-
-		case <-socksCloseCh:
-			tt.finAck()
-			tt.changeState(FIN_WAIT_1)
-
-		case <-timeout.C:
+		if release {
+			releaseTCPPacket(pkt)
+		}
+		if !continu {
 			if tt.socksConn != nil {
 				tt.socksConn.Close()
 			}
 			close(tt.quitBySelf)
 			tt.t2s.clearTCPConnTrack(tt.id)
 			return
+		}
 
-		case <-tt.quitByOther:
-			// who closes this channel should be responsible to clear track map
-			log.Printf("tcpConnTrack quitByOther")
-			if tt.socksConn != nil {
-				tt.socksConn.Close()
+	case data := <-fromSocksCh:
+		tt.lastPacketTime = time.Now()
+		tt.payload(data)
+
+	case <-socksCloseCh:
+		tt.finAck()
+		tt.changeState(FIN_WAIT_1)
+
+	case <-tt.quitByOther:
+		// who closes this channel should be responsible to clear track map
+		log.Printf("tcpConnTrack quitByOther")
+		if tt.socksConn != nil {
+			tt.socksConn.Close()
+		}
+		return
+
+	default:
+		if tt.state == ESTABLISHED {
+			if time.Now().Sub(tt.lastPacketTime) > time.Millisecond*10 && tt.lastAck < tt.rcvNxtSeq {
+				// have something to ack
+				tt.ack()
 			}
-			return
 		}
-		timeout.Stop()
-		if ackTimer != nil {
-			ackTimer.Stop()
-		}
+		return
 	}
 }
 
@@ -883,23 +883,26 @@ func (t2s *Tun2Socks) createTCPConnTrack(id string, ip *packet.IPv4, tcp *packet
 		t2s:          t2s,
 		id:           id,
 		toTunCh:      t2s.writeCh,
-		input:        make(chan *tcpPacket, 10000),
-		fromSocksCh:  make(chan []byte, 100),
-		toSocksCh:    make(chan *tcpPacket, 100),
+		input:        make(chan *tcpPacket, 10),
+		fromSocksCh:  make(chan []byte, 20),
+		toSocksCh:    make(chan *tcpPacket, 20),
 		socksCloseCh: make(chan bool),
 		quitBySelf:   make(chan bool),
 		quitByOther:  make(chan bool),
 		connectState: CONNECT_NOT_SENT,
 
+		lastPacketTime: time.Now(),
+
 		sendWindow:  int32(MAX_SEND_WINDOW),
 		recvWindow:  int32(MAX_RECV_WINDOW),
 		sendWndCond: &sync.Cond{L: &sync.Mutex{}},
+		recvWndCond: &sync.Cond{L: &sync.Mutex{}},
 
 		localPort:  tcp.SrcPort,
 		remotePort: tcp.DstPort,
 		state:      CLOSED,
 
-		uid:         -1,
+		uid:         FindAppUid(ip.SrcIP.String(), tcp.SrcPort, ip.DstIP.String(), tcp.DstPort),
 		proxyServer: t2s.defaultProxyServer,
 	}
 
@@ -908,28 +911,26 @@ func (t2s *Tun2Socks) createTCPConnTrack(id string, ip *packet.IPv4, tcp *packet
 	track.remoteIP = make(net.IP, len(ip.DstIP))
 	copy(track.remoteIP, ip.DstIP)
 
+	track.loadProxyConfig()
+
 	t2s.tcpConnTrackMap[id] = track
-	go track.run()
 	return track
 }
 
 func (t2s *Tun2Socks) getTCPConnTrack(id string) *tcpConnTrack {
-	t2s.tcpConnTrackLock.Lock()
-	defer t2s.tcpConnTrackLock.Unlock()
-
 	return t2s.tcpConnTrackMap[id]
 }
 
 func (t2s *Tun2Socks) clearTCPConnTrack(id string) {
-	t2s.tcpConnTrackLock.Lock()
-	defer t2s.tcpConnTrackLock.Unlock()
-
+	log.Print("Delete connection")
 	delete(t2s.tcpConnTrackMap, id)
 }
 
 func (t2s *Tun2Socks) tcp(raw []byte, ip *packet.IPv4, tcp *packet.TCP) {
 	connID := tcpConnID(ip, tcp)
+
 	track := t2s.getTCPConnTrack(connID)
+
 	if track != nil {
 		pkt := copyTCPPacket(raw, ip, tcp)
 		track.newPacket(pkt)
@@ -947,6 +948,7 @@ func (t2s *Tun2Socks) tcp(raw []byte, ip *packet.IPv4, tcp *packet.TCP) {
 			// log.Printf("<-- [TCP][%s][RST]", connID)
 			return
 		}
+
 		pkt := copyTCPPacket(raw, ip, tcp)
 		track := t2s.createTCPConnTrack(connID, ip, tcp)
 		track.newPacket(pkt)

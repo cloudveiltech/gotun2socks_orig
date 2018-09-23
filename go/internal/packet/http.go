@@ -2,7 +2,6 @@ package packet
 
 import (
 	"fmt"
-	"log"
 	"strings"
 )
 
@@ -77,7 +76,6 @@ func (tcp *TCP) PatchHostForPlainHttp(proxyAuthHeader string) []byte {
 	newPayLoad := make([]byte, newPayloadLength, newPayloadLength)
 
 	headerEndIndex := findStringInData(tcp.Payload, "\r\n", index1) + 2
-	log.Printf("Header end index is %d", headerEndIndex)
 
 	//host
 	copy(newPayLoad[:index1], tcp.Payload[:index1])

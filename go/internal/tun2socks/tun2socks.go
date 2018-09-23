@@ -14,6 +14,7 @@ import (
 const (
 	MTU = 15000
 
+	PROXY_TYPE_NONE  = 0
 	PROXY_TYPE_SOCKS = 1
 	PROXY_TYPE_HTTP  = 2
 )
@@ -51,10 +52,11 @@ type Tun2Socks struct {
 	writerStopCh chan bool
 	writeCh      chan interface{}
 
-	tcpConnTrackLock   sync.Mutex
 	tcpConnTrackMap    map[string]*tcpConnTrack
 	proxyServerMap     map[int]*ProxyServer
 	defaultProxyServer *ProxyServer
+
+	tcpConnTrackLock sync.Mutex
 
 	udpConnTrackLock sync.Mutex
 	udpConnTrackMap  map[string]*udpConnTrack
@@ -116,22 +118,35 @@ func (t2s *Tun2Socks) SetProxyServers(proxyServerMap map[int]*ProxyServer) {
 func (t2s *Tun2Socks) Stop() {
 	t2s.writerStopCh <- true
 	t2s.dev.Close()
-	t2s.tcpConnTrackLock.Lock()
-	log.Print("111")
-	defer t2s.tcpConnTrackLock.Unlock()
-	for _, tcpTrack := range t2s.tcpConnTrackMap {
-		close(tcpTrack.quitByOther)
-	}
-	log.Print("222")
+
 	t2s.udpConnTrackLock.Lock()
 	defer t2s.udpConnTrackLock.Unlock()
 	for _, udpTrack := range t2s.udpConnTrackMap {
 		close(udpTrack.quitByOther)
 	}
-	log.Print("333")
 	t2s.stopped = true
 	t2s.wg.Wait()
 	log.Print("Stop")
+}
+
+func (t2s *Tun2Socks) tcpWorker() {
+	t2s.tcpConnTrackLock.Lock()
+	defer t2s.tcpConnTrackLock.Unlock()
+
+	for _, tcpTrack := range t2s.tcpConnTrackMap {
+		tcpTrack.run()
+
+		timeout := 20 * time.Second
+
+		if time.Now().Sub(tcpTrack.lastPacketTime) > timeout {
+			if tcpTrack.socksConn != nil {
+				tcpTrack.socksConn.Close()
+			}
+			close(tcpTrack.quitBySelf)
+			t2s.clearTCPConnTrack(tcpTrack.id)
+		}
+	}
+
 }
 
 func (t2s *Tun2Socks) Run() {
@@ -168,6 +183,31 @@ func (t2s *Tun2Socks) Run() {
 	var ip packet.IPv4
 	var tcp packet.TCP
 	var udp packet.UDP
+
+	//worker
+	go func() {
+		i := 0
+		for {
+			t2s.tcpWorker()
+			if t2s.stopped {
+				for _, tcpTrack := range t2s.tcpConnTrackMap {
+					if tcpTrack.socksConn != nil {
+						tcpTrack.socksConn.Close()
+					}
+					close(tcpTrack.quitBySelf)
+					t2s.clearTCPConnTrack(tcpTrack.id)
+				}
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+			i++
+			if i > 100 {
+				i = 0
+				log.Printf("Conn size tcp %d udp %d", len(t2s.tcpConnTrackMap), len(t2s.udpConnTrackMap))
+			}
+		}
+		log.Printf("Worker exit")
+	}()
 
 	t2s.wg.Add(1)
 	defer t2s.wg.Done()

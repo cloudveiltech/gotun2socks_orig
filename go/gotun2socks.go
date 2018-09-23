@@ -2,6 +2,7 @@ package gotun2socks
 
 import (
 	"log"
+	"runtime/debug"
 	"strings"
 
 	"github.com/dkwiebe/gotun2socks/internal/tun"
@@ -21,6 +22,10 @@ func AddProxyServer(uid int, ipPort string, proxyType int, httpAuthHeader string
 		proxyServerMap = make(map[int]*tun2socks.ProxyServer)
 	}
 
+	if len(ipPort) < 8 {
+		proxyType = tun2socks.PROXY_TYPE_NONE
+	}
+
 	proxy := &tun2socks.ProxyServer{
 		ProxyType:  proxyType,
 		IpAddress:  ipPort,
@@ -34,6 +39,10 @@ func AddProxyServer(uid int, ipPort string, proxyType int, httpAuthHeader string
 }
 
 func SetDefaultProxy(ipPort string, proxyType int, httpAuthHeader string, login string, password string) {
+	if len(ipPort) < 8 {
+		proxyType = tun2socks.PROXY_TYPE_NONE
+	}
+
 	defaultProxy = &tun2socks.ProxyServer{
 		ProxyType:  proxyType,
 		IpAddress:  ipPort,
@@ -62,6 +71,8 @@ func Run(descriptor int) {
 	}()
 
 	log.Printf("Tun2Htpp started")
+	debug.SetTraceback("all")
+	debug.SetPanicOnFault(true)
 }
 
 func Stop() {
