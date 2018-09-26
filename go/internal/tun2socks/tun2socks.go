@@ -4,6 +4,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"runtime"
 	"sync"
 	"time"
 
@@ -25,12 +26,12 @@ var (
 			UserName: "cloudveilsocks",
 			Password: "cloudveilsocks",
 		},
-		Timeout: 10 * time.Second,
+		Timeout: time.Second,
 	}
 
 	directDialer *gosocks.SocksDialer = &gosocks.SocksDialer{
 		Auth:    &gosocks.HttpAuthenticator{},
-		Timeout: 10 * time.Second,
+		Timeout: time.Second,
 	}
 
 	_, ip1, _ = net.ParseCIDR("10.0.0.0/24")
@@ -129,24 +130,28 @@ func (t2s *Tun2Socks) Stop() {
 	log.Print("Stop")
 }
 
-func (t2s *Tun2Socks) tcpWorker() {
+func (t2s *Tun2Socks) tcpWorker() bool {
 	t2s.tcpConnTrackLock.Lock()
 	defer t2s.tcpConnTrackLock.Unlock()
 
+	allPassed := false
 	for _, tcpTrack := range t2s.tcpConnTrackMap {
-		tcpTrack.run()
+		passed := tcpTrack.run()
 
-		timeout := 20 * time.Second
+		//	timeout := 20 * time.Second
 
-		if time.Now().Sub(tcpTrack.lastPacketTime) > timeout {
+		/*if !passed && time.Now().Sub(tcpTrack.lastPacketTime) > timeout {
 			if tcpTrack.socksConn != nil {
 				tcpTrack.socksConn.Close()
 			}
 			close(tcpTrack.quitBySelf)
 			t2s.clearTCPConnTrack(tcpTrack.id)
-		}
+		}*/
+
+		allPassed = allPassed || passed
 	}
 
+	return allPassed
 }
 
 func (t2s *Tun2Socks) Run() {
@@ -188,22 +193,24 @@ func (t2s *Tun2Socks) Run() {
 	go func() {
 		i := 0
 		for {
-			t2s.tcpWorker()
+			wasData := t2s.tcpWorker()
 			if t2s.stopped {
 				for _, tcpTrack := range t2s.tcpConnTrackMap {
 					if tcpTrack.socksConn != nil {
 						tcpTrack.socksConn.Close()
 					}
-					close(tcpTrack.quitBySelf)
+					close(tcpTrack.quitByOther)
 					t2s.clearTCPConnTrack(tcpTrack.id)
 				}
 				break
 			}
-			time.Sleep(10 * time.Millisecond)
+			if !wasData {
+				time.Sleep(10 * time.Millisecond)
+			}
 			i++
-			if i > 100 {
+			if i > 500 {
 				i = 0
-				log.Printf("Conn size tcp %d udp %d", len(t2s.tcpConnTrackMap), len(t2s.udpConnTrackMap))
+				log.Printf("Conn size tcp %d udp %d, routines %d", len(t2s.tcpConnTrackMap), len(t2s.udpConnTrackMap), runtime.NumGoroutine())
 			}
 		}
 		log.Printf("Worker exit")

@@ -2,7 +2,9 @@ package gotun2socks
 
 import (
 	"log"
+	"os"
 	"runtime/debug"
+	"runtime/pprof"
 	"strings"
 
 	"github.com/dkwiebe/gotun2socks/internal/tun"
@@ -77,4 +79,8 @@ func Run(descriptor int) {
 
 func Stop() {
 	tun2SocksInstance.Stop()
+}
+
+func Prof() {
+	pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
 }

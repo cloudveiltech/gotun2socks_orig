@@ -39,7 +39,7 @@ func OpenTunDevice(name, addr, gw, mask string, dns []string) (io.ReadWriteClose
 
 	// config address
 	log.Printf("configuring tun device address")
-	cmd := exec.Command("ifconfig", name, addr, "netmask", mask, "mtu", "1500")
+	cmd := exec.Command("ifconfig", name, addr, "netmask", mask, "mtu", "15000")
 	err = cmd.Run()
 	if err != nil {
 		file.Close()

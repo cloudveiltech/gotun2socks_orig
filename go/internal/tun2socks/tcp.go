@@ -270,14 +270,13 @@ func (tt *tcpConnTrack) validSeq(pkt *tcpPacket) bool {
 	ret := (pkt.tcp.Seq == tt.rcvNxtSeq)
 	if !ret {
 		// log.Printf("WARNING: invalid seq: recvd: %d, expecting: %d", pkt.tcp.Seq, tt.rcvNxtSeq)
-		// if (tt.rcvNxtSeq - pkt.tcp.Seq) == 1 && tt.state == ESTABLISHED {
-		// 	log.Printf("(probably a keep-alive message)")
-		// }
+
 	}
 	return ret
 }
 
 func (tt *tcpConnTrack) relayPayload(pkt *tcpPacket) bool {
+	log.Print("relayPayload")
 	payloadLen := uint32(len(pkt.tcp.Payload))
 	select {
 	case tt.toSocksCh <- pkt:
@@ -520,6 +519,7 @@ func (tt *tcpConnTrack) loadProxyConfig() {
 }
 
 func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn, readCh chan<- []byte, writeCh <-chan *tcpPacket, closeCh chan bool) {
+	log.Printf("tcpSocks2Tun %s", dstIP.String())
 	if tt.uid == -1 {
 		uid := FindAppUid(tt.localIP.String(), tt.localPort, dstIP.String(), dstPort)
 		log.Printf("UID for TCP request from %s:%d to %s:%d is %d", tt.localIP.String(), tt.localPort, dstIP.String(), dstPort, uid)
@@ -559,11 +559,18 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 				if tt.proxyServer.ProxyType == PROXY_TYPE_HTTP {
 					if tt.connectState != CONNECT_ESTABLISHED {
 						tt.recvWndCond.L.Lock()
-						log.Printf("Wait for connect response")
+						log.Print("Waiting https connect")
 						tt.recvWndCond.Wait()
 						tt.recvWndCond.L.Unlock()
 					}
-					conn.Write(pkt.tcp.PatchHostForPlainHttp(tt.proxyServer.AuthHeader))
+
+					if pkt.tcp.DstPort == 443 {
+						log.Printf("Sending https data")
+						conn.Write(pkt.tcp.Payload)
+					} else {
+						log.Printf("Sending http data %s", pkt.tcp.Hostname)
+						conn.Write(pkt.tcp.PatchHostForPlainHttp(tt.proxyServer.AuthHeader))
+					}
 
 				} else {
 					conn.Write(pkt.tcp.Payload)
@@ -580,6 +587,7 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 				releaseTCPPacket(pkt)
 			}
 		}
+		log.Print("Writer exit routine")
 	}()
 
 	// reader
@@ -607,10 +615,12 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 		// tt.sendWndCond.L.Unlock()
 		if tt.connectState == CONNECT_SENT {
 			conn.Read(buf[:])
+			log.Print("Reading connect")
 			tt.connectState = CONNECT_ESTABLISHED
-			tt.recvWndCond.Signal()
+			tt.recvWndCond.Broadcast()
 		} else if tt.connectState == CONNECT_ESTABLISHED {
 			n, e := conn.Read(buf[:cur])
+			log.Print("Reading data")
 			if e != nil {
 				log.Printf("error to read from socks: %s", e)
 				conn.Close()
@@ -631,8 +641,12 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 				// tt.sendWndCond.L.Unlock()
 			}
 		}
-		tt.recvWndCond.Signal()
+		tt.recvWndCond.Broadcast()
 	}
+
+	tt.recvWndCond.Broadcast()
+	closeCh <- true
+	log.Print("Reader exit routine")
 	close(closeCh)
 }
 
@@ -670,18 +684,20 @@ func (tt *tcpConnTrack) stateSynRcvd(pkt *tcpPacket) (continu bool, release bool
 }
 
 func (tt *tcpConnTrack) stateEstablished(pkt *tcpPacket) (continu bool, release bool) {
-	//log.Print("stateEstablished")
 	// ack if sequence is not expected
 	if !tt.validSeq(pkt) {
 		tt.ack()
+
 		return true, true
 	}
 	// connection ends by valid RST
 	if pkt.tcp.RST {
+		log.Print("rst")
 		return false, true
 	}
 	// ignore non-ACK packets
 	if !pkt.tcp.ACK {
+		log.Print("ack")
 		return true, true
 	}
 
@@ -706,7 +722,7 @@ func (tt *tcpConnTrack) stateFinWait1(pkt *tcpPacket) (continu bool, release boo
 	//log.Print("stateFinWait1")
 	// ignore packet with invalid sequence, state unchanged
 	if !tt.validSeq(pkt) {
-		return true, true
+		return false, true
 	}
 	// connection ends by valid RST
 	if pkt.tcp.RST {
@@ -714,7 +730,7 @@ func (tt *tcpConnTrack) stateFinWait1(pkt *tcpPacket) (continu bool, release boo
 	}
 	// ignore non-ACK packets
 	if !pkt.tcp.ACK {
-		return true, true
+		return false, true
 	}
 
 	if pkt.tcp.FIN {
@@ -725,11 +741,11 @@ func (tt *tcpConnTrack) stateFinWait1(pkt *tcpPacket) (continu bool, release boo
 			return false, true
 		} else {
 			tt.changeState(CLOSING)
-			return true, true
+			return false, true
 		}
 	} else {
 		tt.changeState(FIN_WAIT_2)
-		return true, true
+		return false, true
 	}
 }
 
@@ -737,7 +753,7 @@ func (tt *tcpConnTrack) stateFinWait2(pkt *tcpPacket) (continu bool, release boo
 	//log.Print("stateFinWait2")
 	// ignore packet with invalid sequence/ack, state unchanged
 	if !(tt.validSeq(pkt) && tt.validAck(pkt)) {
-		return true, true
+		return false, true
 	}
 	// connection ends by valid RST
 	if pkt.tcp.RST {
@@ -745,7 +761,7 @@ func (tt *tcpConnTrack) stateFinWait2(pkt *tcpPacket) (continu bool, release boo
 	}
 	// ignore non-FIN non-ACK packets
 	if !pkt.tcp.ACK || !pkt.tcp.FIN {
-		return true, true
+		return false, true
 	}
 	tt.rcvNxtSeq += 1
 	tt.ack()
@@ -803,12 +819,10 @@ func (tt *tcpConnTrack) updateSendWindow(pkt *tcpPacket) {
 	// tt.sendWndCond.L.Unlock()
 }
 
-func (tt *tcpConnTrack) run() {
-	var socksCloseCh chan bool
+func (tt *tcpConnTrack) run() bool {
 	var fromSocksCh chan []byte
 	// enable some channels only when the state is ESTABLISHED
 	if tt.state == ESTABLISHED {
-		socksCloseCh = tt.socksCloseCh
 		fromSocksCh = tt.fromSocksCh
 	}
 
@@ -816,10 +830,11 @@ func (tt *tcpConnTrack) run() {
 	case pkt := <-tt.input:
 		tt.lastPacketTime = time.Now()
 
-		// log.Printf("--> [TCP][%s][%s][%s][seq:%d][ack:%d][payload:%d]", tt.id, tcpstateString(tt.state), tcpflagsString(pkt.tcp), pkt.tcp.Seq, pkt.tcp.Ack, len(pkt.tcp.Payload))
+		//log.Printf("--> [TCP][%s][%s][%s][seq:%d][ack:%d][payload:%d]", tt.id, tcpstateString(tt.state), tcpflagsString(pkt.tcp), pkt.tcp.Seq, pkt.tcp.Ack, len(pkt.tcp.Payload))
 		var continu, release bool
 
 		tt.updateSendWindow(pkt)
+
 		switch tt.state {
 		case CLOSED:
 			continu, release = tt.stateClosed(pkt)
@@ -836,43 +851,30 @@ func (tt *tcpConnTrack) run() {
 		case LAST_ACK:
 			continu, release = tt.stateLastAck(pkt)
 		}
-		if release {
-			releaseTCPPacket(pkt)
+
+		if tt.state == FIN_WAIT_1 || tt.state == FIN_WAIT_2 {
+			tt.finAck()
 		}
+
 		if !continu {
 			if tt.socksConn != nil {
 				tt.socksConn.Close()
 			}
 			close(tt.quitBySelf)
 			tt.t2s.clearTCPConnTrack(tt.id)
-			return
+			return true
 		}
 
+		if release {
+			releaseTCPPacket(pkt)
+		}
 	case data := <-fromSocksCh:
 		tt.lastPacketTime = time.Now()
 		tt.payload(data)
-
-	case <-socksCloseCh:
-		tt.finAck()
-		tt.changeState(FIN_WAIT_1)
-
-	case <-tt.quitByOther:
-		// who closes this channel should be responsible to clear track map
-		log.Printf("tcpConnTrack quitByOther")
-		if tt.socksConn != nil {
-			tt.socksConn.Close()
-		}
-		return
-
 	default:
-		if tt.state == ESTABLISHED {
-			if time.Now().Sub(tt.lastPacketTime) > time.Millisecond*10 && tt.lastAck < tt.rcvNxtSeq {
-				// have something to ack
-				tt.ack()
-			}
-		}
-		return
+		return false
 	}
+	return true
 }
 
 func (t2s *Tun2Socks) createTCPConnTrack(id string, ip *packet.IPv4, tcp *packet.TCP) *tcpConnTrack {
@@ -886,7 +888,7 @@ func (t2s *Tun2Socks) createTCPConnTrack(id string, ip *packet.IPv4, tcp *packet
 		input:        make(chan *tcpPacket, 10),
 		fromSocksCh:  make(chan []byte, 20),
 		toSocksCh:    make(chan *tcpPacket, 20),
-		socksCloseCh: make(chan bool),
+		socksCloseCh: make(chan bool, 100),
 		quitBySelf:   make(chan bool),
 		quitByOther:  make(chan bool),
 		connectState: CONNECT_NOT_SENT,
@@ -922,7 +924,12 @@ func (t2s *Tun2Socks) getTCPConnTrack(id string) *tcpConnTrack {
 }
 
 func (t2s *Tun2Socks) clearTCPConnTrack(id string) {
-	log.Print("Delete connection")
+	track, ok := t2s.tcpConnTrackMap[id]
+	if ok {
+		track.recvWndCond.Broadcast()
+		track.sendWndCond.Broadcast()
+	}
+
 	delete(t2s.tcpConnTrackMap, id)
 }
 
