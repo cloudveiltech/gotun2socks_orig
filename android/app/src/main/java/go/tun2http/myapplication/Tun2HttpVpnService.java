@@ -22,8 +22,6 @@ public class Tun2HttpVpnService extends VpnService {
 
     private ParcelFileDescriptor parcelFileDescriptor = null;
 
-    private String appPackageName = getPackageName();
-
     @Override
     public IBinder onBind(Intent intent) {
         return null;
@@ -77,22 +75,25 @@ public class Tun2HttpVpnService extends VpnService {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             try {
-                builder.addDisallowedApplication(appPackageName);
+                builder.addDisallowedApplication(getPackageName());
             } catch (PackageManager.NameNotFoundException e) {
                 e.printStackTrace();
             }
         }
 
-        builder.setMtu(15000);
+        builder.setMtu(1500);
 
         return builder;
     }
 
     private void setupProxyServers() {
         String header = Base64.encodeToString(("test@test.com" + ":" + "1").getBytes(), Base64.NO_WRAP);
-        Gotun2socks.setDefaultProxy("123.123.123.123:8099", PROXY_TYPE_HTTP, header, "", "");
+       //  Gotun2socks.setDefaultProxy("45.79.132.164:19752", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
+        Gotun2socks.setDefaultProxy("172.104.6.115:3128", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
 
-        Gotun2socks.addProxyServer(10062, "123.123.123.123:1009", PROXY_TYPE_SOCKS, "", "login", "password");
+       //Gotun2socks.setDefaultProxy("192.168.100.4:8888", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
+
+        //Gotun2socks.addProxyServer(10122, "172.104.6.115:10901", PROXY_TYPE_HTTP, header, "", "");
     }
 
     @Override
@@ -100,11 +101,6 @@ public class Tun2HttpVpnService extends VpnService {
         // Handle service restart
         if (intent == null) {
             return START_STICKY;
-        }
-
-        String mainPackageName = intent.getStringExtra(EXTRA_APP_PACKAGE_NAME);
-        if(!TextUtils.isEmpty(mainPackageName)) {
-            appPackageName = mainPackageName;
         }
 
         if (ACTION_START.equals(intent.getAction())) {

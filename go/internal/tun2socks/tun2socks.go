@@ -130,30 +130,6 @@ func (t2s *Tun2Socks) Stop() {
 	log.Print("Stop")
 }
 
-func (t2s *Tun2Socks) tcpWorker() bool {
-	t2s.tcpConnTrackLock.Lock()
-	defer t2s.tcpConnTrackLock.Unlock()
-
-	allPassed := false
-	for _, tcpTrack := range t2s.tcpConnTrackMap {
-		passed := tcpTrack.run()
-
-		//	timeout := 20 * time.Second
-
-		/*if !passed && time.Now().Sub(tcpTrack.lastPacketTime) > timeout {
-			if tcpTrack.socksConn != nil {
-				tcpTrack.socksConn.Close()
-			}
-			close(tcpTrack.quitBySelf)
-			t2s.clearTCPConnTrack(tcpTrack.id)
-		}*/
-
-		allPassed = allPassed || passed
-	}
-
-	return allPassed
-}
-
 func (t2s *Tun2Socks) Run() {
 	// writer
 	go func() {
@@ -193,9 +169,10 @@ func (t2s *Tun2Socks) Run() {
 	go func() {
 		i := 0
 		for {
-			wasData := t2s.tcpWorker()
+			//	wasData := t2s.tcpWorker()
 			if t2s.stopped {
 				for _, tcpTrack := range t2s.tcpConnTrackMap {
+					tcpTrack.destroyed = true
 					if tcpTrack.socksConn != nil {
 						tcpTrack.socksConn.Close()
 					}
@@ -204,11 +181,11 @@ func (t2s *Tun2Socks) Run() {
 				}
 				break
 			}
-			if !wasData {
-				time.Sleep(10 * time.Millisecond)
-			}
+			//	if !wasData {
+			time.Sleep(100 * time.Millisecond)
+			//	}
 			i++
-			if i > 500 {
+			if i > 10 {
 				i = 0
 				log.Printf("Conn size tcp %d udp %d, routines %d", len(t2s.tcpConnTrackMap), len(t2s.udpConnTrackMap), runtime.NumGoroutine())
 			}

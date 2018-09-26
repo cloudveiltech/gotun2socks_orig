@@ -214,7 +214,6 @@ func (ut *udpConnTrack) run() {
 	}
 	reply, e := gosocks.ReadSocksReply(ut.socksConn)
 	if e != nil {
-		log.Printf("error to read socks reply: %s", e)
 		ut.socksConn.Close()
 		close(ut.socksClosed)
 		close(ut.quitBySelf)

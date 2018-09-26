@@ -7,6 +7,8 @@ import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
 
+import gotun2socks.Gotun2socks;
+
 public class MainActivity extends Activity {
     Button start;
     Button stop;
@@ -29,6 +31,13 @@ public class MainActivity extends Activity {
             @Override
             public void onClick(View v) {
                 stopVpn();
+            }
+        });
+        Button prof = findViewById(R.id.prof);
+        prof.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                Gotun2socks.prof();
             }
         });
 
