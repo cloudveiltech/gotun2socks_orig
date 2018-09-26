@@ -167,12 +167,11 @@ func (t2s *Tun2Socks) Run() {
 
 	//worker
 	go func() {
-		i := 0
 		for {
-			//	wasData := t2s.tcpWorker()
 			if t2s.stopped {
 				for _, tcpTrack := range t2s.tcpConnTrackMap {
 					tcpTrack.destroyed = true
+					tcpTrack.quitByOther <- true
 					if tcpTrack.socksConn != nil {
 						tcpTrack.socksConn.Close()
 					}
@@ -181,14 +180,9 @@ func (t2s *Tun2Socks) Run() {
 				}
 				break
 			}
-			//	if !wasData {
-			time.Sleep(100 * time.Millisecond)
-			//	}
-			i++
-			if i > 10 {
-				i = 0
-				log.Printf("Conn size tcp %d udp %d, routines %d", len(t2s.tcpConnTrackMap), len(t2s.udpConnTrackMap), runtime.NumGoroutine())
-			}
+
+			time.Sleep(1000 * time.Millisecond)
+			log.Printf("Conn size tcp %d udp %d, routines %d", len(t2s.tcpConnTrackMap), len(t2s.udpConnTrackMap), runtime.NumGoroutine())
 		}
 		log.Printf("Worker exit")
 	}()
@@ -197,14 +191,19 @@ func (t2s *Tun2Socks) Run() {
 	defer t2s.wg.Done()
 	for {
 		n, e := t2s.dev.Read(buf[:])
-		if e != nil {
-			// TODO: stop at critical error
-			log.Printf("read packet error: %s", e)
-			return
-		}
 
 		if t2s.stopped {
 			log.Printf("quit tun2socks reader")
+			return
+		}
+
+		if n == 0 {
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		if e != nil {
+			// TODO: stop at critical error
+			log.Printf("read packet error: %s", e)
 			return
 		}
 

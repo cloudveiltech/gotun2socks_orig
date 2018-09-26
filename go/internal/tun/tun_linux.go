@@ -46,7 +46,7 @@ func OpenTunDevice(name, addr, gw, mask string, dns []string) (io.ReadWriteClose
 		log.Printf("failed to configure tun device address")
 		return nil, err
 	}
-	syscall.SetNonblock(int(file.Fd()), false)
+	syscall.SetNonblock(int(file.Fd()), true)
 	return &tunDev{
 		f:      file,
 		addr:   addr,
@@ -57,7 +57,7 @@ func OpenTunDevice(name, addr, gw, mask string, dns []string) (io.ReadWriteClose
 }
 
 func NewTunDev(fd uintptr, name string, addr string, gw string) io.ReadWriteCloser {
-	syscall.SetNonblock(int(fd), false)
+	syscall.SetNonblock(int(fd), true)
 	return &tunDev{
 		f:      os.NewFile(fd, name),
 		addr:   addr,
