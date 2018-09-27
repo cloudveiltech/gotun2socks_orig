@@ -120,6 +120,16 @@ func (t2s *Tun2Socks) Stop() {
 	t2s.writerStopCh <- true
 	t2s.dev.Close()
 
+	t2s.tcpConnTrackLock.Lock()
+	defer t2s.tcpConnTrackLock.Unlock()
+	for _, tcpTrack := range t2s.tcpConnTrackMap {
+		tcpTrack.destroyed = true
+		if tcpTrack.socksConn != nil {
+			tcpTrack.socksConn.Close()
+		}
+		close(tcpTrack.quitByOther)
+	}
+
 	t2s.udpConnTrackLock.Lock()
 	defer t2s.udpConnTrackLock.Unlock()
 	for _, udpTrack := range t2s.udpConnTrackMap {
@@ -169,15 +179,7 @@ func (t2s *Tun2Socks) Run() {
 	go func() {
 		for {
 			if t2s.stopped {
-				for _, tcpTrack := range t2s.tcpConnTrackMap {
-					tcpTrack.destroyed = true
-					tcpTrack.quitByOther <- true
-					if tcpTrack.socksConn != nil {
-						tcpTrack.socksConn.Close()
-					}
-					close(tcpTrack.quitByOther)
-					t2s.clearTCPConnTrack(tcpTrack.id)
-				}
+
 				break
 			}
 

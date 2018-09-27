@@ -584,13 +584,23 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 				atomic.StoreInt32(&tt.recvWindow, wnd)
 
 				releaseTCPPacket(pkt)
+			default:
+				if tt.t2s.stopped {
+					break loop
+				}
+				time.Sleep(10 * time.Millisecond)
 			}
+
 		}
 		log.Print("Writer exit routine")
 	}()
 
 	// reader
 	for {
+		if tt.t2s.stopped {
+			break
+		}
+
 		var buf [MTU - 40]byte
 
 		// tt.sendWndCond.L.Lock()
@@ -924,7 +934,7 @@ func (t2s *Tun2Socks) createTCPConnTrack(id string, ip *packet.IPv4, tcp *packet
 		input:        make(chan *tcpPacket),
 		fromSocksCh:  make(chan []byte, 1500),
 		toSocksCh:    make(chan *tcpPacket, 1500),
-		socksCloseCh: make(chan bool),
+		socksCloseCh: make(chan bool, 20),
 		quitBySelf:   make(chan bool),
 		quitByOther:  make(chan bool),
 		connectState: CONNECT_NOT_SENT,
@@ -966,6 +976,8 @@ func (t2s *Tun2Socks) getTCPConnTrack(id string) *tcpConnTrack {
 }
 
 func (t2s *Tun2Socks) clearTCPConnTrack(id string) {
+	t2s.tcpConnTrackLock.Lock()
+	defer t2s.tcpConnTrackLock.Unlock()
 	track, ok := t2s.tcpConnTrackMap[id]
 	if ok {
 		track.recvWndCond.Broadcast()
