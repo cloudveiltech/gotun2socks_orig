@@ -3,6 +3,7 @@ package gotun2socks
 import (
 	"log"
 	"os"
+	"runtime"
 	"runtime/debug"
 	"runtime/pprof"
 	"strings"
@@ -55,7 +56,9 @@ func SetDefaultProxy(ipPort string, proxyType int, httpAuthHeader string, login 
 	log.Printf("Set default proxy")
 }
 
-func Run(descriptor int) {
+func Run(descriptor int, maxCpus int) {
+	runtime.GOMAXPROCS(maxCpus)
+
 	var tunAddr string = "10.0.0.2"
 	var tunGW string = "10.0.0.1"
 	var tunDNS string = "8.8.8.8,8.8.4.4"

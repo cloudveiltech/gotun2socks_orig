@@ -14,6 +14,7 @@ import gotun2socks.Gotun2socks;
 
 
 public class Tun2HttpVpnService extends VpnService {
+    private static final int MAX_CPUS = 1;
     private static final int PROXY_TYPE_SOCKS = 1;
     private static final int PROXY_TYPE_HTTP = 2;
     private static final String ACTION_START = "start";
@@ -37,7 +38,7 @@ public class Tun2HttpVpnService extends VpnService {
             setupProxyServers();
             Builder builder = setupBuilder();
             parcelFileDescriptor = builder.establish();
-            Gotun2socks.run(parcelFileDescriptor.getFd());
+            Gotun2socks.run(parcelFileDescriptor.getFd(), MAX_CPUS);
         }
     }
 
@@ -88,10 +89,10 @@ public class Tun2HttpVpnService extends VpnService {
 
     private void setupProxyServers() {
         String header = Base64.encodeToString(("test@test.com" + ":" + "1").getBytes(), Base64.NO_WRAP);
-        Gotun2socks.setDefaultProxy("45.79.132.164:19752", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
+     //   Gotun2socks.setDefaultProxy("45.79.132.164:19752", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
         //Gotun2socks.setDefaultProxy("172.104.6.115:3128", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
 
-       //Gotun2socks.setDefaultProxy("192.168.100.4:8888", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
+       Gotun2socks.setDefaultProxy("192.168.100.4:8888", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
 
         //Gotun2socks.addProxyServer(10122, "172.104.6.115:10901", PROXY_TYPE_HTTP, header, "", "");
     }

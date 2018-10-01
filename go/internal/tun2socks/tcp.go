@@ -585,7 +585,7 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 
 				releaseTCPPacket(pkt)
 			default:
-				if tt.t2s.stopped {
+				if tt.t2s.stopped || tt.destroyed {
 					break loop
 				}
 				time.Sleep(10 * time.Millisecond)
@@ -597,7 +597,7 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 
 	// reader
 	for {
-		if tt.t2s.stopped {
+		if tt.t2s.stopped || tt.destroyed {
 			break
 		}
 
@@ -831,7 +831,7 @@ func (tt *tcpConnTrack) updateSendWindow(pkt *tcpPacket) {
 func (tt *tcpConnTrack) run() {
 	for {
 		var ackTimer *time.Timer
-		var timeout *time.Timer = time.NewTimer(5 * time.Minute)
+		var timeout *time.Timer = time.NewTimer(30 * time.Second)
 
 		var ackTimeout <-chan time.Time
 		var socksCloseCh chan bool
@@ -980,6 +980,7 @@ func (t2s *Tun2Socks) clearTCPConnTrack(id string) {
 	defer t2s.tcpConnTrackLock.Unlock()
 	track, ok := t2s.tcpConnTrackMap[id]
 	if ok {
+		track.destroyed = true
 		track.recvWndCond.Broadcast()
 		track.sendWndCond.Broadcast()
 	}
