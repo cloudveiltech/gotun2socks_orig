@@ -39,6 +39,9 @@ const (
 	CONNECT_NOT_SENT    = -1
 	CONNECT_SENT        = 0
 	CONNECT_ESTABLISHED = 1
+
+	TIMEOUT    = 30 * time.Second
+	ACTTIMEOUT = 10 * time.Millisecond
 )
 
 type tcpConnTrack struct {
@@ -829,19 +832,28 @@ func (tt *tcpConnTrack) updateSendWindow(pkt *tcpPacket) {
 }
 
 func (tt *tcpConnTrack) run() {
-	for {
-		var ackTimer *time.Timer
-		var timeout *time.Timer = time.NewTimer(30 * time.Second)
+	var ackTimeout <-chan time.Time
+	var socksCloseCh chan bool
+	var fromSocksCh chan []byte
+	var ackTimer *time.Timer
+	var timeout *time.Timer = time.NewTimer(30 * time.Second)
 
-		var ackTimeout <-chan time.Time
-		var socksCloseCh chan bool
-		var fromSocksCh chan []byte
+	for {
+		timeout.Reset(30 * time.Second)
+
 		// enable some channels only when the state is ESTABLISHED
 		if tt.state == ESTABLISHED {
 			socksCloseCh = tt.socksCloseCh
 			fromSocksCh = tt.fromSocksCh
-			ackTimer = time.NewTimer(10 * time.Millisecond)
+			if ackTimer == nil {
+				ackTimer = time.NewTimer(10 * time.Millisecond)
+			} else {
+				ackTimer.Reset(10 * time.Millisecond)
+			}
 			ackTimeout = ackTimer.C
+			if time.Now().Sub(tt.lastPacketTime) > TIMEOUT {
+				tt.destroyed = true
+			}
 		}
 
 		if tt.destroyed {
@@ -857,6 +869,8 @@ func (tt *tcpConnTrack) run() {
 		case pkt := <-tt.input:
 			// log.Printf("--> [TCP][%s][%s][%s][seq:%d][ack:%d][payload:%d]", tt.id, tcpstateString(tt.state), tcpflagsString(pkt.tcp), pkt.tcp.Seq, pkt.tcp.Ack, len(pkt.tcp.Payload))
 			var continu, release bool
+
+			tt.lastPacketTime = time.Now()
 
 			tt.updateSendWindow(pkt)
 			switch tt.state {
@@ -894,6 +908,7 @@ func (tt *tcpConnTrack) run() {
 			}
 
 		case data := <-fromSocksCh:
+			tt.lastPacketTime = time.Now()
 			tt.payload(data)
 
 		case <-socksCloseCh:

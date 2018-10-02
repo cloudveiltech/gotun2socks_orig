@@ -179,7 +179,6 @@ func (t2s *Tun2Socks) Run() {
 	go func() {
 		for {
 			if t2s.stopped {
-
 				break
 			}
 
