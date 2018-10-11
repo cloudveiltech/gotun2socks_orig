@@ -433,15 +433,7 @@ func cacheKey(q dns.Question) string {
 }
 
 func (t2s *Tun2Socks) isDNS(remoteIP string, remotePort uint16) bool {
-	if remotePort != 53 {
-		return false
-	}
-	for _, s := range t2s.dnsServers {
-		if s == remoteIP {
-			return true
-		}
-	}
-	return false
+	return remotePort == 53
 }
 
 func (c *dnsCache) query(payload []byte) *dns.Msg {

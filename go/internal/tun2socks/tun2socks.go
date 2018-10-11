@@ -61,10 +61,8 @@ type Tun2Socks struct {
 
 	udpConnTrackLock sync.Mutex
 	udpConnTrackMap  map[string]*udpConnTrack
-
-	dnsServers []string
-	cache      *dnsCache
-	stopped    bool
+	cache            *dnsCache
+	stopped          bool
 
 	wg sync.WaitGroup
 }
@@ -88,7 +86,7 @@ func dialTransaprent(localAddr string) (*gosocks.SocksConn, error) {
 	return directDialer.Dial(localAddr)
 }
 
-func New(dev io.ReadWriteCloser, dnsServers []string, enableDnsCache bool) *Tun2Socks {
+func New(dev io.ReadWriteCloser, enableDnsCache bool) *Tun2Socks {
 	t2s := &Tun2Socks{
 		dev:                dev,
 		writerStopCh:       make(chan bool, 10),
@@ -97,7 +95,6 @@ func New(dev io.ReadWriteCloser, dnsServers []string, enableDnsCache bool) *Tun2
 		udpConnTrackMap:    make(map[string]*udpConnTrack),
 		proxyServerMap:     make(map[int]*ProxyServer),
 		defaultProxyServer: nil,
-		dnsServers:         dnsServers,
 		stopped:            false,
 	}
 	if enableDnsCache {

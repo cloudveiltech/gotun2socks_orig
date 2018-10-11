@@ -6,7 +6,6 @@ import (
 	"runtime"
 	"runtime/debug"
 	"runtime/pprof"
-	"strings"
 
 	"github.com/dkwiebe/gotun2socks/internal/tun"
 	"github.com/dkwiebe/gotun2socks/internal/tun2socks"
@@ -61,12 +60,10 @@ func Run(descriptor int, maxCpus int) {
 
 	var tunAddr string = "10.0.0.2"
 	var tunGW string = "10.0.0.1"
-	var tunDNS string = "8.8.8.8,8.8.4.4"
 	var enableDnsCache bool = true
 
-	dnsServers := strings.Split(tunDNS, ",")
 	f := tun.NewTunDev(uintptr(descriptor), "tun0", tunAddr, tunGW)
-	tun2SocksInstance = tun2socks.New(f, dnsServers, enableDnsCache)
+	tun2SocksInstance = tun2socks.New(f, enableDnsCache)
 
 	tun2SocksInstance.SetDefaultProxy(defaultProxy)
 	tun2SocksInstance.SetProxyServers(proxyServerMap)
