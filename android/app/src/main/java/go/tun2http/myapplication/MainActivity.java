@@ -3,8 +3,13 @@ package go.tun2http.myapplication;
 import android.app.Activity;
 import android.content.Intent;
 import android.net.VpnService;
+import android.net.http.SslError;
 import android.os.Bundle;
 import android.view.View;
+import android.webkit.SslErrorHandler;
+import android.webkit.WebChromeClient;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.Button;
 
 import gotun2socks.Gotun2socks;

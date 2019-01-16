@@ -3,7 +3,6 @@ package gotun2socks
 import (
 	"log"
 	"os"
-	"runtime"
 	"runtime/debug"
 	"runtime/pprof"
 
@@ -56,7 +55,7 @@ func SetDefaultProxy(ipPort string, proxyType int, httpAuthHeader string, login 
 }
 
 func Run(descriptor int, maxCpus int) {
-	runtime.GOMAXPROCS(maxCpus)
+	//runtime.GOMAXPROCS(maxCpus)
 
 	var tunAddr string = "10.0.0.2"
 	var tunGW string = "10.0.0.1"
@@ -71,6 +70,8 @@ func Run(descriptor int, maxCpus int) {
 	go func() {
 		tun2SocksInstance.Run()
 	}()
+
+	startGoProxyServer()
 
 	log.Printf("Tun2Htpp started")
 	debug.SetTraceback("all")

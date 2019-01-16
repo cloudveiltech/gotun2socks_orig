@@ -14,7 +14,7 @@ import gotun2socks.Gotun2socks;
 
 
 public class Tun2HttpVpnService extends VpnService {
-    private static final int MAX_CPUS = 1;
+    private static final int MAX_CPUS = 2;
     private static final int PROXY_TYPE_SOCKS = 1;
     private static final int PROXY_TYPE_HTTP = 2;
     private static final String ACTION_START = "start";
@@ -91,9 +91,7 @@ public class Tun2HttpVpnService extends VpnService {
         String header = Base64.encodeToString(("test@test.com" + ":" + "1").getBytes(), Base64.NO_WRAP);
 //        Gotun2socks.setDefaultProxy("45.79.132.164:19752", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
 
-       Gotun2socks.setDefaultProxy("192.168.43.10:8888", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
-
-
+       Gotun2socks.setDefaultProxy("127.0.0.1:23500", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
     }
 
     @Override

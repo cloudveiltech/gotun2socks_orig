@@ -6,23 +6,26 @@
     android:gravity="center"
     android:orientation="vertical">
 
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Go Proxy Filtering Demo" android:layout_marginBottom="10dp" />
 
     <Button
         android:id="@+id/start"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="@string/start"/>
+        android:text="@string/start" />
 
     <Button
         android:id="@+id/stop"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="@string/stop"/>
+        android:text="@string/stop" />
 
     <Button
         android:id="@+id/prof"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="@string/prof"/>
-
+        android:text="@string/prof" />
 </LinearLayout>

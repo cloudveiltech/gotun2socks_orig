@@ -539,6 +539,7 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 			}
 		}
 	}
+
 	if tt.proxyServer.ProxyType != PROXY_TYPE_HTTP || dstPort != 443 || isPrivate(dstIP) {
 		tt.connectState = CONNECT_ESTABLISHED
 	}
