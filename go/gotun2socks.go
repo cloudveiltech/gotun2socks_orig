@@ -80,6 +80,9 @@ func Run(descriptor int, maxCpus int) {
 
 func Stop() {
 	tun2SocksInstance.Stop()
+	if boltDb != nil {
+		boltDb.Close()
+	}
 }
 
 func Prof() {

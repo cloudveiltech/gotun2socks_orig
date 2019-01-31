@@ -23,9 +23,11 @@
         android:layout_height="wrap_content"
         android:text="@string/stop" />
 
+
     <Button
-        android:id="@+id/prof"
+        android:id="@+id/load"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="@string/prof" />
+        android:text="@string/load_rules_from_local_file" />
+
 </LinearLayout>

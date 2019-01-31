@@ -222,10 +222,10 @@ func startGoProxyServer() {
 
 	proxy.OnRequest().DoFunc(
 		func(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
-			if strings.Contains(r.URL.Host, "777.com") {
+			if boltDb.IsDomainBlocked(r.Host) {
 				return r, goproxy.NewResponse(r,
 					goproxy.ContentTypeText, http.StatusForbidden,
-					"777.com is blocked by goproxy handler")
+					r.URL.Host+" is blocked by goproxy handler")
 			}
 
 			return r, nil

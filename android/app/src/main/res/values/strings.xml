@@ -3,4 +3,5 @@
     <string name="start">Start</string>
     <string name="stop">Stop</string>
     <string name="prof">Prof</string>
+    <string name="load_rules_from_local_file">Load rules from local file</string>
 </resources>
