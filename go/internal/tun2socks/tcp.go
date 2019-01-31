@@ -411,6 +411,7 @@ func (tt *tcpConnTrack) payload(data []byte) {
 // SYN/ACK if success, otherwise RST
 func (tt *tcpConnTrack) stateClosed(syn *tcpPacket) (continu bool, release bool) {
 	var e error
+
 	if !isPrivate(tt.remoteIP) && (tt.remotePort == 80 || tt.remotePort == 443) {
 		if tt.uid == -1 {
 			log.Printf("initiating connection, loading uid and proxy")
@@ -461,7 +462,6 @@ func (tt *tcpConnTrack) stateClosed(syn *tcpPacket) (continu bool, release bool)
 }
 
 func (tt *tcpConnTrack) callSocks(dstIP net.IP, dstPort uint16, conn net.Conn, closeCh chan bool) error {
-	log.Printf("callSocks")
 	_, e := gosocks.WriteSocksRequest(conn, &gosocks.SocksRequest{
 		Cmd:      gosocks.SocksCmdConnect,
 		HostType: gosocks.SocksIPv4Host,
@@ -632,10 +632,8 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 			tt.recvWndCond.Broadcast()
 		} else if tt.connectState == CONNECT_ESTABLISHED {
 			n, e := conn.Read(buf[:cur])
-			if e != nil {
-				log.Printf("error to read from socks: %s", e)
-				break
-			} else {
+
+			if n > 0 {
 				b := make([]byte, n)
 				copy(b, buf[:n])
 				readCh <- b
@@ -650,15 +648,18 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 				atomic.CompareAndSwapInt32(&tt.sendWindow, wnd, nxt)
 				// tt.sendWndCond.L.Unlock()
 			}
+
+			if e != nil {
+				log.Printf("error to read from socks: %s", e)
+				break
+			}
 		}
 		tt.recvWndCond.Broadcast()
 	}
 
-	tt.destroyed = true
 	tt.recvWndCond.Broadcast()
 	closeCh <- true
 	log.Print("Reader exit routine")
-	close(closeCh)
 }
 
 // stateSynRcvd expects a ACK with matching ack number,
@@ -898,6 +899,9 @@ func (tt *tcpConnTrack) run() {
 				}
 				close(tt.quitBySelf)
 				tt.t2s.clearTCPConnTrack(tt.id)
+				tt.destroyed = true
+
+				close(socksCloseCh)
 				return
 			}
 
@@ -912,6 +916,7 @@ func (tt *tcpConnTrack) run() {
 			tt.payload(data)
 
 		case <-socksCloseCh:
+			log.Printf("state socksCloseCh")
 			tt.finAck()
 			tt.changeState(FIN_WAIT_1)
 
@@ -925,7 +930,7 @@ func (tt *tcpConnTrack) run() {
 
 		case <-tt.quitByOther:
 			// who closes this channel should be responsible to clear track map
-			log.Printf("tcpConnTrack quitByOther")
+			log.Printf("state quitByOther")
 			if tt.socksConn != nil {
 				tt.socksConn.Close()
 			}
