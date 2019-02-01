@@ -4,4 +4,5 @@
     <string name="stop">Stop</string>
     <string name="prof">Prof</string>
     <string name="load_rules_from_local_file">Load rules from local file</string>
+    <string name="feeding_db">Feeding Blocked Domains</string>
 </resources>

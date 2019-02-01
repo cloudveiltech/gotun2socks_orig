@@ -9,7 +9,15 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Go Proxy Filtering Demo" android:layout_marginBottom="10dp" />
+        android:layout_marginBottom="10dp"
+        android:text="Go Proxy Filtering Demo" />
+
+    <TextView
+        android:id="@+id/info"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="10dp"
+        android:text="" />
 
     <Button
         android:id="@+id/start"

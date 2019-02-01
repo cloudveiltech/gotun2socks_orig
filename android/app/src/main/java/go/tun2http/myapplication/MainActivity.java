@@ -1,18 +1,24 @@
 package go.tun2http.myapplication;
 
 import android.app.Activity;
+import android.app.ProgressDialog;
 import android.content.Intent;
 import android.net.Uri;
 import android.net.VpnService;
 import android.os.Bundle;
+import android.text.format.Formatter;
 import android.util.Log;
 import android.widget.Button;
+import android.widget.TextView;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.file.Files;
 import java.util.ArrayList;
+
 import gotun2socks.BoltDB;
 import gotun2socks.Gotun2socks;
 
@@ -22,8 +28,11 @@ public class MainActivity extends Activity {
     Button start;
     Button stop;
     Button load;
+    TextView info;
 
     BoltDB boltDB;
+
+    ProgressDialog progressDialog;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -33,6 +42,7 @@ public class MainActivity extends Activity {
         start = findViewById(R.id.start);
         stop = findViewById(R.id.stop);
         load = findViewById(R.id.load);
+        info = findViewById(R.id.info);
 
         start.setOnClickListener(v -> startVpn());
         stop.setOnClickListener(v -> stopVpn());
@@ -72,7 +82,7 @@ public class MainActivity extends Activity {
         initDb();
         Intent i = VpnService.prepare(this);
         if (i != null) {
-            startActivityForResult(i, 0);
+            startActivityForResult(i, REQUEST_CODE_START_VPN);
         } else {
             onActivityResult(REQUEST_CODE_START_VPN, Activity.RESULT_OK, null);
         }
@@ -102,32 +112,64 @@ public class MainActivity extends Activity {
     }
 
     private void initDb() {
-        if(boltDB != null) {
+        if (boltDB != null) {
             return;
         }
         String path;
-        if (android.os.Build.VERSION.SDK_INT >=android.os.Build.VERSION_CODES.LOLLIPOP){
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
             path = getNoBackupFilesDir().getAbsolutePath();
-        } else{
+        } else {
             path = getFilesDir().getAbsolutePath();
         }
         boltDB = Gotun2socks.newBoltDB(path);
+
+        updateDbInfo();
     }
 
     private void appendFileToFilterDb(Uri uri) throws IOException {
-        InputStream inputStream = getContentResolver().openInputStream(uri);
-        if(inputStream == null) {
+        final InputStream inputStream = getContentResolver().openInputStream(uri);
+        if (inputStream == null) {
             return;
         }
-        BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
-        String line;
-        boltDB.beginTransaction();
-        while ((line = reader.readLine()) != null) {
-            boltDB.addBlockedDomain(line, (byte)1);
+        progressDialog = new ProgressDialog(this);
+        progressDialog.setTitle(R.string.feeding_db);
+        progressDialog.setIndeterminate(true);
+        progressDialog.show();
+        new Thread(() -> {
+            try {
+                BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
+                String line;
+                boltDB.beginTransaction();
+                int i = 0;
+                long start = System.currentTimeMillis();
+                while ((line = reader.readLine()) != null) {
+                    boltDB.addBlockedDomain(line, (byte) 1);
+                    i++;
 
-            Log.d("Uri", line);
-        }
-        boltDB.commitTransaction();
-        inputStream.close();
+                    //    Log.d("Import", i + " Lines imported");
+                    if (System.currentTimeMillis() - start > 1000) {
+                        final int n = i;
+                        MainActivity.this.runOnUiThread(() -> progressDialog.setMessage("Imported " + n + " items"));
+                        start = System.currentTimeMillis();
+                    }
+                }
+
+                inputStream.close();
+
+                final int n = i;
+                MainActivity.this.runOnUiThread(() -> progressDialog.setMessage(n + " items.Committing changes.."));
+
+                boltDB.commitTransaction();
+                progressDialog.dismiss();
+
+                MainActivity.this.runOnUiThread(this::updateDbInfo);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
+    private void updateDbInfo() {
+        info.setText("Db Path: " + boltDB.path() + "\nDb Size: " + Formatter.formatShortFileSize(this, new File(boltDB.path()).length()));
     }
 }
