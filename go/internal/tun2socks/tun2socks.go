@@ -179,7 +179,7 @@ func (t2s *Tun2Socks) Run() {
 				break
 			}
 
-			time.Sleep(1000 * time.Millisecond)
+			time.Sleep(5000 * time.Millisecond)
 			log.Printf("Conn size tcp %d udp %d, routines %d", len(t2s.tcpConnTrackMap), len(t2s.udpConnTrackMap), runtime.NumGoroutine())
 		}
 		log.Printf("Worker exit")

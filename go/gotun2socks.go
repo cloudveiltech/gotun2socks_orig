@@ -12,7 +12,14 @@ import (
 )
 
 var tun2SocksInstance *tun2socks.Tun2Socks
-var defaultProxy *tun2socks.ProxyServer
+var defaultProxy = &tun2socks.ProxyServer{
+	ProxyType:  tun2socks.PROXY_TYPE_NONE,
+	IpAddress:  ":",
+	AuthHeader: "",
+	Login:      "",
+	Password:   "",
+}
+
 var proxyServerMap map[int]*tun2socks.ProxyServer
 
 func SayHi() string {
@@ -58,7 +65,7 @@ func SetDefaultProxy(ipPort string, proxyType int, httpAuthHeader string, login 
 func Run(descriptor int, maxCpus int) {
 	runtime.GOMAXPROCS(maxCpus)
 
-	var tunAddr string = "10.0.0.2"
+	var tunAddr string = "10.253.253.253"
 	var tunGW string = "10.0.0.1"
 	var enableDnsCache bool = true
 

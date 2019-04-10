@@ -661,6 +661,7 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 	tt.recvWndCond.Broadcast()
 	if !tt.destroyed {
 		closeCh <- true
+		close(closeCh)
 	}
 	log.Print("Reader exit routine")
 }
@@ -897,14 +898,13 @@ func (tt *tcpConnTrack) run() {
 				releaseTCPPacket(pkt)
 			}
 			if !continu {
+				tt.destroyed = true
 				if tt.socksConn != nil {
 					tt.socksConn.Close()
 				}
 				close(tt.quitBySelf)
 				tt.t2s.clearTCPConnTrack(tt.id)
-				tt.destroyed = true
 
-				close(tt.socksCloseCh)
 				return
 			}
 
