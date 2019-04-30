@@ -415,7 +415,7 @@ func (tt *tcpConnTrack) stateClosed(syn *tcpPacket) (continu bool, release bool)
 	if !isPrivate(tt.remoteIP) && (tt.remotePort == 80 || tt.remotePort == 443) {
 		if tt.uid == -1 {
 			log.Printf("initiating connection, loading uid and proxy")
-			uid := FindAppUid(tt.localIP.String(), tt.localPort, tt.remoteIP.String(), tt.remotePort)
+			uid := tt.t2s.FindAppUid(tt.localIP.String(), tt.localPort, tt.remoteIP.String(), tt.remotePort)
 			tt.uid = uid
 			tt.loadProxyConfig()
 		}
@@ -522,9 +522,8 @@ func (tt *tcpConnTrack) loadProxyConfig() {
 }
 
 func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn, readCh chan<- []byte, writeCh <-chan *tcpPacket, closeCh chan bool) {
-	log.Printf("tcpSocks2Tun %s", dstIP.String())
 	if tt.uid == -1 {
-		uid := FindAppUid(tt.localIP.String(), tt.localPort, dstIP.String(), dstPort)
+		uid := tt.t2s.FindAppUid(tt.localIP.String(), tt.localPort, dstIP.String(), dstPort)
 		log.Printf("UID for TCP request from %s:%d to %s:%d is %d", tt.localIP.String(), tt.localPort, dstIP.String(), dstPort, uid)
 		tt.uid = uid
 		tt.loadProxyConfig()
@@ -919,7 +918,6 @@ func (tt *tcpConnTrack) run() {
 			tt.payload(data)
 
 		case <-socksCloseCh:
-			log.Printf("state socksCloseCh")
 			tt.finAck()
 			tt.changeState(FIN_WAIT_1)
 
@@ -933,7 +931,6 @@ func (tt *tcpConnTrack) run() {
 
 		case <-tt.quitByOther:
 			// who closes this channel should be responsible to clear track map
-			log.Printf("state quitByOther")
 			if tt.socksConn != nil {
 				tt.socksConn.Close()
 			}
@@ -974,7 +971,7 @@ func (t2s *Tun2Socks) createTCPConnTrack(id string, ip *packet.IPv4, tcp *packet
 		remotePort: tcp.DstPort,
 		state:      CLOSED,
 
-		uid:         FindAppUid(ip.SrcIP.String(), tcp.SrcPort, ip.DstIP.String(), tcp.DstPort),
+		uid:         t2s.FindAppUid(ip.SrcIP.String(), tcp.SrcPort, ip.DstIP.String(), tcp.DstPort),
 		proxyServer: t2s.defaultProxyServer,
 	}
 

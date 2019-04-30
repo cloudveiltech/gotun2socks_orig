@@ -11,6 +11,22 @@ import (
 	"github.com/dkwiebe/gotun2socks/internal/tun2socks"
 )
 
+type JavaUidCallback interface {
+	FindUid(sourceIp string, sourcePort int, destIp string, destPort int) int
+}
+
+type Callbacks struct {
+	uidCallback JavaUidCallback
+}
+
+func (c Callbacks) GetUid(sourceIp string, sourcePort uint16, destIp string, destPort uint16) int {
+	if c.uidCallback == nil {
+		log.Printf("uid callback is nil")
+	}
+
+	return c.uidCallback.FindUid(sourceIp, int(sourcePort), destIp, int(destPort))
+}
+
 var tun2SocksInstance *tun2socks.Tun2Socks
 var defaultProxy = &tun2socks.ProxyServer{
 	ProxyType:  tun2socks.PROXY_TYPE_NONE,
@@ -19,6 +35,8 @@ var defaultProxy = &tun2socks.ProxyServer{
 	Login:      "",
 	Password:   "",
 }
+
+var callback *Callbacks = nil
 
 var proxyServerMap map[int]*tun2socks.ProxyServer
 
@@ -62,6 +80,18 @@ func SetDefaultProxy(ipPort string, proxyType int, httpAuthHeader string, login 
 	log.Printf("Set default proxy")
 }
 
+func SetUidCallback(javaCallback JavaUidCallback) {
+	callback = &Callbacks {
+		uidCallback: javaCallback,
+	}
+	
+	if tun2SocksInstance != nil {
+		tun2SocksInstance.SetUidCallback(callback)
+	}
+	
+	log.Printf("Uid callback set")
+}
+
 func Run(descriptor int, maxCpus int) {
 	runtime.GOMAXPROCS(maxCpus)
 
@@ -74,6 +104,11 @@ func Run(descriptor int, maxCpus int) {
 
 	tun2SocksInstance.SetDefaultProxy(defaultProxy)
 	tun2SocksInstance.SetProxyServers(proxyServerMap)
+	if callback != nil && callback.uidCallback != nil {
+		tun2SocksInstance.SetUidCallback(callback)
+	} else {
+		tun2SocksInstance.SetUidCallback(nil)
+	}
 
 	go func() {
 		tun2SocksInstance.Run()

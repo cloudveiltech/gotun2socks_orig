@@ -13,6 +13,8 @@ public class MainActivity extends Activity {
     Button start;
     Button stop;
 
+    native int stringFromJNI();
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -37,9 +39,12 @@ public class MainActivity extends Activity {
         prof.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                Gotun2socks.prof();
+                //Gotun2socks.prof();
+                stringFromJNI();
             }
         });
+
+        System.loadLibrary("native-lib");
 
 
         start.setEnabled(true);
