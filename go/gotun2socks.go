@@ -10,8 +10,33 @@ import (
 	"github.com/dkwiebe/gotun2socks/internal/tun2socks"
 )
 
+type JavaUidCallback interface {
+	FindUid(sourceIp string, sourcePort int, destIp string, destPort int) int
+}
+
+type Callbacks struct {
+	uidCallback JavaUidCallback
+}
+
+func (c Callbacks) GetUid(sourceIp string, sourcePort uint16, destIp string, destPort uint16) int {
+	if c.uidCallback == nil {
+		log.Printf("uid callback is nil")
+	}
+
+	return c.uidCallback.FindUid(sourceIp, int(sourcePort), destIp, int(destPort))
+}
+
 var tun2SocksInstance *tun2socks.Tun2Socks
-var defaultProxy *tun2socks.ProxyServer
+var defaultProxy = &tun2socks.ProxyServer{
+	ProxyType:  tun2socks.PROXY_TYPE_NONE,
+	IpAddress:  ":",
+	AuthHeader: "",
+	Login:      "",
+	Password:   "",
+}
+
+var callback *Callbacks = nil
+
 var proxyServerMap map[int]*tun2socks.ProxyServer
 
 func SayHi() string {
@@ -54,10 +79,22 @@ func SetDefaultProxy(ipPort string, proxyType int, httpAuthHeader string, login 
 	log.Printf("Set default proxy")
 }
 
+func SetUidCallback(javaCallback JavaUidCallback) {
+	callback = &Callbacks{
+		uidCallback: javaCallback,
+	}
+
+	if tun2SocksInstance != nil {
+		tun2SocksInstance.SetUidCallback(callback)
+	}
+
+	log.Printf("Uid callback set")
+}
+
 func Run(descriptor int, maxCpus int) {
 	//runtime.GOMAXPROCS(maxCpus)
 
-	var tunAddr string = "10.0.0.2"
+	var tunAddr string = "10.253.253.253"
 	var tunGW string = "10.0.0.1"
 	var enableDnsCache bool = true
 
@@ -66,6 +103,11 @@ func Run(descriptor int, maxCpus int) {
 
 	tun2SocksInstance.SetDefaultProxy(defaultProxy)
 	tun2SocksInstance.SetProxyServers(proxyServerMap)
+	if callback != nil && callback.uidCallback != nil {
+		tun2SocksInstance.SetUidCallback(callback)
+	} else {
+		tun2SocksInstance.SetUidCallback(nil)
+	}
 
 	go func() {
 		tun2SocksInstance.Run()
@@ -80,6 +122,7 @@ func Run(descriptor int, maxCpus int) {
 
 func Stop() {
 	tun2SocksInstance.Stop()
+	stopGoProxyServer()
 	if boltDb != nil {
 		boltDb.Close()
 	}

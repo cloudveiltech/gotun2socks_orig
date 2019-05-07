@@ -8,10 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/miekg/dns"
-
 	"github.com/dkwiebe/gotun2socks/internal/gosocks"
 	"github.com/dkwiebe/gotun2socks/internal/packet"
+	"github.com/miekg/dns"
 )
 
 type udpPacket struct {
@@ -38,6 +37,8 @@ type udpConnTrack struct {
 	remoteIP   net.IP
 	localPort  uint16
 	remotePort uint16
+
+	destroyed bool
 }
 
 var (
@@ -159,21 +160,28 @@ func (ut *udpConnTrack) send(data []byte) {
 	}
 }
 
+func dialUdpTransparent(address string) (conn *gosocks.SocksConn, err error) {
+	c, err := net.DialTimeout("udp", address, time.Second)
+	if err != nil {
+		return
+	}
+	conn = &gosocks.SocksConn{c.(*net.UDPConn), time.Second}
+	return
+}
+
 func (ut *udpConnTrack) run() {
 	// connect to socks
 	var e error
-	for i := 0; i < 2; i++ {
-		var remoteIpPort string
-		remoteIpPort = fmt.Sprintf("%s:%d", ut.remoteIP.String(), ut.remotePort)
-		ut.socksConn, e = dialTransaprent(remoteIpPort) //bypass udp
-		if e != nil {
-			log.Printf("fail to connect remote ip: %s", e)
-		} else {
-			// need to finish handshake in 1 mins
-			ut.socksConn.SetDeadline(time.Now().Add(time.Minute * 1))
-			break
-		}
+	var remoteIpPort = fmt.Sprintf("%s:%d", ut.remoteIP.String(), ut.remotePort)
+
+	log.Printf("udp request to %s", remoteIpPort)
+	ut.socksConn, e = dialUdpTransparent(remoteIpPort) //bypass udp
+	if e != nil {
+		log.Printf("fail to connect remote ip: %s", e)
+	} else {
+		ut.socksConn.SetDeadline(time.Now().Add(time.Second * 10))
 	}
+
 	if ut.socksConn == nil {
 		close(ut.socksClosed)
 		close(ut.quitBySelf)
@@ -182,12 +190,13 @@ func (ut *udpConnTrack) run() {
 	}
 
 	// create one UDP to recv/send packets
-	socksAddr := ut.socksConn.LocalAddr().(*net.TCPAddr)
+	socksAddr := ut.socksConn.LocalAddr().(*net.UDPAddr)
 	udpBind, err := net.ListenUDP("udp", &net.UDPAddr{
 		IP:   socksAddr.IP,
 		Port: 0,
 		Zone: socksAddr.Zone,
 	})
+
 	if err != nil {
 		log.Printf("error in binding local UDP: %s", err)
 		ut.socksConn.Close()
@@ -197,42 +206,11 @@ func (ut *udpConnTrack) run() {
 		return
 	}
 
-	// socks request/reply
-	_, e = gosocks.WriteSocksRequest(ut.socksConn, &gosocks.SocksRequest{
-		Cmd:      gosocks.SocksCmdUDPAssociate,
-		HostType: gosocks.SocksIPv4Host,
-		DstHost:  "0.0.0.0",
-		DstPort:  0,
-	})
-	if e != nil {
-		log.Printf("error to send socks request: %s", e)
-		ut.socksConn.Close()
-		close(ut.socksClosed)
-		close(ut.quitBySelf)
-		ut.t2s.clearUDPConnTrack(ut.id)
-		return
-	}
-	reply, e := gosocks.ReadSocksReply(ut.socksConn)
-	if e != nil {
-		ut.socksConn.Close()
-		close(ut.socksClosed)
-		close(ut.quitBySelf)
-		ut.t2s.clearUDPConnTrack(ut.id)
-		return
-	}
-	if reply.Rep != gosocks.SocksSucceeded {
-		log.Printf("socks connect request fail, retcode: %d", reply.Rep)
-		ut.socksConn.Close()
-		close(ut.socksClosed)
-		close(ut.quitBySelf)
-		ut.t2s.clearUDPConnTrack(ut.id)
-		return
-	}
-	relayAddr := gosocks.SocksAddrToNetAddr("udp", reply.BndHost, reply.BndPort).(*net.UDPAddr)
+	relayAddr := gosocks.SocksAddrToNetAddr("udp", ut.remoteIP.String(), ut.remotePort).(*net.UDPAddr)
 
 	ut.socksConn.SetDeadline(time.Time{})
 	// monitor socks TCP connection
-	go gosocks.ConnMonitor(ut.socksConn, ut.socksClosed)
+	//go gosocks.ConnMonitor(ut.socksConn, ut.socksClosed)
 	// read UDP packets from relay
 	quitUDP := make(chan bool)
 	chRelayUDP := make(chan *gosocks.UDPPacket)
@@ -240,12 +218,12 @@ func (ut *udpConnTrack) run() {
 
 	start := time.Now()
 	for {
-		var t *time.Timer
-		if ut.t2s.isDNS(ut.remoteIP.String(), ut.remotePort) {
-			t = time.NewTimer(10 * time.Second)
-		} else {
-			t = time.NewTimer(2 * time.Minute)
+		var t = time.NewTimer(time.Second)
+
+		if ut.t2s.stopped {
+			return
 		}
+
 		select {
 		// pkt from relay
 		case pkt, ok := <-chRelayUDP:
@@ -255,48 +233,33 @@ func (ut *udpConnTrack) run() {
 				close(ut.quitBySelf)
 				ut.t2s.clearUDPConnTrack(ut.id)
 				close(quitUDP)
+				log.Printf("UDP exit worker")
 				return
 			}
-			if pkt.Addr.String() != relayAddr.String() {
-				log.Printf("response relayed from %s, expect %s", pkt.Addr.String(), relayAddr.String())
-				continue
-			}
-			udpReq, err := gosocks.ParseUDPRequest(pkt.Data)
-			if err != nil {
-				log.Printf("error to parse UDP request from relay: %s", err)
-				continue
-			}
-			if udpReq.Frag != gosocks.SocksNoFragment {
-				continue
-			}
-			ut.send(udpReq.Data)
+
+			ut.send(pkt.Data)
+
 			if ut.t2s.isDNS(ut.remoteIP.String(), ut.remotePort) {
+				dumpDnsResponse(pkt.Data)
 				// DNS-without-fragment only has one request-response
 				end := time.Now()
 				ms := end.Sub(start).Nanoseconds() / 1000000
-				log.Printf("DNS session response received: %d ms", ms)
+				log.Printf("DNS session response received: %d ms ", ms)
 				if ut.t2s.cache != nil {
-					ut.t2s.cache.store(udpReq.Data)
+					ut.t2s.cache.store(pkt.Data)
 				}
 				ut.socksConn.Close()
 				udpBind.Close()
 				close(ut.quitBySelf)
 				ut.t2s.clearUDPConnTrack(ut.id)
 				close(quitUDP)
+				log.Printf("UDP exit worker")
 				return
 			}
 
 		// pkt from tun
 		case pkt := <-ut.fromTunCh:
-			req := &gosocks.UDPRequest{
-				Frag:     0,
-				HostType: gosocks.SocksIPv4Host,
-				DstHost:  pkt.ip.DstIP.String(),
-				DstPort:  uint16(pkt.udp.DstPort),
-				Data:     pkt.udp.Payload,
-			}
-			datagram := gosocks.PackUDPRequest(req)
-			_, err := udpBind.WriteToUDP(datagram, relayAddr)
+			_, err := udpBind.WriteToUDP(pkt.udp.Payload, relayAddr)
 			releaseUDPPacket(pkt)
 			if err != nil {
 				log.Printf("error to send UDP packet to relay: %s", err)
@@ -305,6 +268,7 @@ func (ut *udpConnTrack) run() {
 				close(ut.quitBySelf)
 				ut.t2s.clearUDPConnTrack(ut.id)
 				close(quitUDP)
+				log.Printf("UDP exit worker")
 				return
 			}
 
@@ -314,6 +278,7 @@ func (ut *udpConnTrack) run() {
 			close(ut.quitBySelf)
 			ut.t2s.clearUDPConnTrack(ut.id)
 			close(quitUDP)
+			log.Printf("UDP exit worker")
 			return
 
 		case <-t.C:
@@ -322,6 +287,7 @@ func (ut *udpConnTrack) run() {
 			close(ut.quitBySelf)
 			ut.t2s.clearUDPConnTrack(ut.id)
 			close(quitUDP)
+			log.Printf("UDP exit worker")
 			return
 
 		case <-ut.quitByOther:
@@ -330,9 +296,22 @@ func (ut *udpConnTrack) run() {
 			udpBind.Close()
 			close(quitUDP)
 			return
+			//	default:
+			//		time.Sleep(time.Millisecond)
 		}
 		t.Stop()
 	}
+}
+
+func dumpDnsResponse(payload []byte) {
+	resp := new(dns.Msg)
+	e := resp.Unpack(payload)
+	if e != nil {
+		log.Printf("Error parsing dns1 %s", e)
+		return
+	}
+	log.Printf("DNS dump:")
+	log.Printf(resp.String())
 }
 
 func (ut *udpConnTrack) newPacket(pkt *udpPacket) {
@@ -340,13 +319,16 @@ func (ut *udpConnTrack) newPacket(pkt *udpPacket) {
 	case <-ut.quitByOther:
 	case <-ut.quitBySelf:
 	case ut.fromTunCh <- pkt:
-		// log.Printf("--> [UDP][%s]", ut.id)
+		//	log.Printf("--> [UDP][%s]", ut.id)
 	}
 }
 
 func (t2s *Tun2Socks) clearUDPConnTrack(id string) {
 	t2s.udpConnTrackLock.Lock()
 	defer t2s.udpConnTrackLock.Unlock()
+
+	track := t2s.udpConnTrackMap[id]
+	track.destroyed = true
 
 	delete(t2s.udpConnTrackMap, id)
 }
@@ -356,9 +338,13 @@ func (t2s *Tun2Socks) getUDPConnTrack(id string, ip *packet.IPv4, udp *packet.UD
 	defer t2s.udpConnTrackLock.Unlock()
 
 	track := t2s.udpConnTrackMap[id]
-	if track != nil {
+	if track != nil && !track.destroyed {
 		return track
 	} else {
+		if track != nil && track.destroyed {
+			t2s.clearUDPConnTrack(id)
+		}
+
 		track := &udpConnTrack{
 			t2s:         t2s,
 			id:          id,
@@ -370,6 +356,7 @@ func (t2s *Tun2Socks) getUDPConnTrack(id string, ip *packet.IPv4, udp *packet.UD
 
 			localPort:  udp.SrcPort,
 			remotePort: udp.DstPort,
+			destroyed:  false,
 		}
 		track.localIP = make(net.IP, len(ip.SrcIP))
 		copy(track.localIP, ip.SrcIP)
@@ -392,6 +379,8 @@ func (t2s *Tun2Socks) udp(raw []byte, ip *packet.IPv4, udp *packet.UDP) {
 		if answer != nil {
 			data, e := answer.PackBuffer(buf[:])
 			if e == nil {
+				log.Printf("UDP: Cache hit")
+
 				resp, fragments := responsePacket(ip.SrcIP, ip.DstIP, udp.SrcPort, udp.DstPort, data)
 				go func(first *udpPacket, frags []*ipPacket) {
 					t2s.writeCh <- first
@@ -404,6 +393,10 @@ func (t2s *Tun2Socks) udp(raw []byte, ip *packet.IPv4, udp *packet.UDP) {
 				done = true
 			}
 		}
+	}
+
+	if !t2s.isDNS(ip.DstIP.String(), udp.DstPort) {
+		done = true
 	}
 
 	// then open a udpConnTrack to forward

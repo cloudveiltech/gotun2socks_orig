@@ -3,7 +3,7 @@ package tun2socks
 import (
 	"fmt"
 	"io/ioutil"
-	"os"
+	"log"
 	"strconv"
 	"strings"
 )
@@ -13,8 +13,8 @@ func getTcpData() []string {
 
 	data, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		log.Println(err)
+		return nil
 	}
 	lines := strings.Split(string(data), "\n")
 
@@ -26,8 +26,8 @@ func hexToDec(h string) uint16 {
 	// convert hexadecimal to decimal.
 	d, err := strconv.ParseInt(h, 16, 32)
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		log.Println(err)
+		return 0
 	}
 
 	return uint16(d)
@@ -85,9 +85,15 @@ func removeEmpty(array []string) []string {
 	return newArray
 }
 
-func FindAppUid(sourceIp string, sourcePort uint16, destIp string, destPort uint16) int {
-	lines := getTcpData()
+func (t2s *Tun2Socks) FindAppUid(sourceIp string, sourcePort uint16, destIp string, destPort uint16) int {
+	if t2s.uidCallback != nil {
+		return t2s.uidCallback.GetUid(sourceIp, sourcePort, destIp, destPort)
+	}
 
+	lines := getTcpData()
+	if lines == nil {
+		return -1
+	}
 	for _, line := range lines {
 		// local ip and port
 		lineArray := removeEmpty(strings.Split(strings.TrimSpace(line), " "))

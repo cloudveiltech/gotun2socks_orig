@@ -73,6 +73,8 @@ public class Tun2HttpVpnService extends VpnService {
         builder.addAddress("10.0.0.2", 32);
         builder.addRoute("0.0.0.0", 0);
         builder.addRoute("0:0:0:0:0:0:0:0", 0);
+        builder.addDnsServer("149.56.142.196");
+        builder.addDnsServer("198.58.111.139");
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             try {
@@ -82,7 +84,7 @@ public class Tun2HttpVpnService extends VpnService {
             }
         }
 
-        builder.setMtu(1500);
+        builder.setMtu(15000);
 
         return builder;
     }
@@ -91,7 +93,7 @@ public class Tun2HttpVpnService extends VpnService {
         String header = Base64.encodeToString(("test@test.com" + ":" + "1").getBytes(), Base64.NO_WRAP);
 //        Gotun2socks.setDefaultProxy("45.79.132.164:19752", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
 
-       Gotun2socks.setDefaultProxy("127.0.0.1:23500", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
+       Gotun2socks.setDefaultProxy("filter_us_nj_1.cloudveil.org:8099", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
     }
 
     @Override

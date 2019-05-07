@@ -47,6 +47,10 @@ type ProxyServer struct {
 	Password   string
 }
 
+type UidCallback interface {
+	GetUid(sourceIp string, sourcePort uint16, destIp string, destPort uint16) int
+}
+
 type Tun2Socks struct {
 	dev io.ReadWriteCloser
 
@@ -56,6 +60,7 @@ type Tun2Socks struct {
 	tcpConnTrackMap    map[string]*tcpConnTrack
 	proxyServerMap     map[int]*ProxyServer
 	defaultProxyServer *ProxyServer
+	uidCallback        UidCallback
 
 	tcpConnTrackLock sync.Mutex
 
@@ -82,7 +87,6 @@ func dialLocalSocks(proxyServer *ProxyServer) (*gosocks.SocksConn, error) {
 }
 
 func dialTransaprent(localAddr string) (*gosocks.SocksConn, error) {
-	log.Print("dialTransaprent")
 	return directDialer.Dial(localAddr)
 }
 
@@ -94,6 +98,7 @@ func New(dev io.ReadWriteCloser, enableDnsCache bool) *Tun2Socks {
 		tcpConnTrackMap:    make(map[string]*tcpConnTrack),
 		udpConnTrackMap:    make(map[string]*udpConnTrack),
 		proxyServerMap:     make(map[int]*ProxyServer),
+		uidCallback:        nil,
 		defaultProxyServer: nil,
 		stopped:            false,
 	}
@@ -103,6 +108,10 @@ func New(dev io.ReadWriteCloser, enableDnsCache bool) *Tun2Socks {
 		}
 	}
 	return t2s
+}
+
+func (t2s *Tun2Socks) SetUidCallback(uidCallback UidCallback) {
+	t2s.uidCallback = uidCallback
 }
 
 func (t2s *Tun2Socks) SetDefaultProxy(proxy *ProxyServer) {
@@ -179,7 +188,7 @@ func (t2s *Tun2Socks) Run() {
 				break
 			}
 
-			time.Sleep(1000 * time.Millisecond)
+			time.Sleep(5000 * time.Millisecond)
 			log.Printf("Conn size tcp %d udp %d, routines %d", len(t2s.tcpConnTrackMap), len(t2s.udpConnTrackMap), runtime.NumGoroutine())
 		}
 		log.Printf("Worker exit")
@@ -221,6 +230,7 @@ func (t2s *Tun2Socks) Run() {
 				continue
 			}
 		}
+
 		switch ip.Protocol {
 		case packet.IPProtocolTCP:
 			e = packet.ParseTCP(ip.Payload, &tcp)

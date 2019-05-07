@@ -2,6 +2,7 @@ package gotun2socks
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -93,7 +94,7 @@ func initGoProxy() {
 	setCA()
 
 	proxy = goproxy.NewProxyHttpServer()
-	proxy.Verbose = true
+	proxy.Verbose = false
 
 	proxy.NonproxyHandler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Host == "" {
@@ -263,4 +264,11 @@ func startGoProxyServer() {
 	if proxy.Verbose {
 		log.Printf("Server started")
 	}
+}
+
+func stopGoProxyServer() {
+	context, _ := context.WithTimeout(context.Background(), 1*time.Second)
+	server.Shutdown(context)
+	
+	server = nil
 }

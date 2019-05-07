@@ -28,6 +28,7 @@ public class MainActivity extends Activity {
     Button start;
     Button stop;
     Button load;
+    Button prof;
     TextView info;
 
     BoltDB boltDB;
@@ -43,10 +44,12 @@ public class MainActivity extends Activity {
         stop = findViewById(R.id.stop);
         load = findViewById(R.id.load);
         info = findViewById(R.id.info);
+        prof = findViewById(R.id.prof);
 
         start.setOnClickListener(v -> startVpn());
         stop.setOnClickListener(v -> stopVpn());
         load.setOnClickListener(v -> loadDataIntoDb());
+        prof.setOnClickListener(v -> Gotun2socks.prof());
 
 
         start.setEnabled(true);
