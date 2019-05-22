@@ -93,7 +93,7 @@ public class Tun2HttpVpnService extends VpnService {
         String header = Base64.encodeToString(("test@test.com" + ":" + "1").getBytes(), Base64.NO_WRAP);
 //        Gotun2socks.setDefaultProxy("45.79.132.164:19752", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
 
-       Gotun2socks.setDefaultProxy("filter_us_nj_1.cloudveil.org:8099", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
+       Gotun2socks.setDefaultProxy("127.0.0.1:23500", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
     }
 
     @Override

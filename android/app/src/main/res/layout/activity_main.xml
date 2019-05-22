@@ -38,9 +38,27 @@
         android:text="@string/prof" />
 
     <Button
-        android:id="@+id/load"
+        android:id="@+id/load_rules"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="@string/load_rules_from_local_file" />
 
+    <Button
+        android:id="@+id/load_triggers"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/load_phrases_from_local_file" />
+
+    <Button
+        android:id="@+id/save_to_file"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/save_to_file" />
+
+
+    <Button
+        android:id="@+id/load_from_file"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/load_from_file" />
 </LinearLayout>

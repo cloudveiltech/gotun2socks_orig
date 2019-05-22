@@ -6,32 +6,34 @@ import android.content.Intent;
 import android.net.Uri;
 import android.net.VpnService;
 import android.os.Bundle;
-import android.text.format.Formatter;
 import android.util.Log;
+import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 
-import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.file.Files;
-import java.util.ArrayList;
+import java.io.OutputStream;
 
-import gotun2socks.BoltDB;
+import gotun2socks.AdBlockMatcher;
 import gotun2socks.Gotun2socks;
 
 public class MainActivity extends Activity {
-    private static final int REQUEST_CODE_CHOOSE_FILE = 1;
+    private static final int REQUEST_CODE_CHOOSE_FILE_RULES = 0;
+    private static final int REQUEST_CODE_CHOOSE_FILE_TRIGGERS = 1;
     private static final int REQUEST_CODE_START_VPN = 2;
     Button start;
     Button stop;
-    Button load;
+    Button loadRules;
+    Button loadTriggers;
+    Button loadFromFile;
+    Button saveToFile;
     Button prof;
     TextView info;
 
-    BoltDB boltDB;
+    AdBlockMatcher adBlockMatcher;
 
     ProgressDialog progressDialog;
 
@@ -42,13 +44,19 @@ public class MainActivity extends Activity {
 
         start = findViewById(R.id.start);
         stop = findViewById(R.id.stop);
-        load = findViewById(R.id.load);
+        loadRules = findViewById(R.id.load_rules);
+        loadTriggers = findViewById(R.id.load_triggers);
         info = findViewById(R.id.info);
         prof = findViewById(R.id.prof);
+        loadFromFile = findViewById(R.id.load_from_file);
+        saveToFile = findViewById(R.id.save_to_file);
 
         start.setOnClickListener(v -> startVpn());
         stop.setOnClickListener(v -> stopVpn());
-        load.setOnClickListener(v -> loadDataIntoDb());
+        loadRules.setOnClickListener(v -> loadRules(REQUEST_CODE_CHOOSE_FILE_RULES));
+        loadTriggers.setOnClickListener(v -> loadRules(REQUEST_CODE_CHOOSE_FILE_TRIGGERS));
+        loadFromFile.setOnClickListener(this::loadFromFile);
+        saveToFile.setOnClickListener(this::saveToFile);
         prof.setOnClickListener(v -> Gotun2socks.prof());
 
 
@@ -57,14 +65,14 @@ public class MainActivity extends Activity {
 
     }
 
-    private void loadDataIntoDb() {
+    private void loadRules(int requestId) {
         Intent chooseFile;
         Intent intent;
         chooseFile = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         chooseFile.addCategory(Intent.CATEGORY_OPENABLE);
         chooseFile.setType("text/plain");
         intent = Intent.createChooser(chooseFile, "Choose a file");
-        startActivityForResult(intent, REQUEST_CODE_CHOOSE_FILE);
+        startActivityForResult(intent, requestId);
     }
 
 
@@ -78,11 +86,11 @@ public class MainActivity extends Activity {
         stop.setEnabled(false);
 
         Tun2HttpVpnService.stop(this);
-        boltDB = null;
+        adBlockMatcher = null;
     }
 
     private void startVpn() {
-        initDb();
+        initMatcher();
         Intent i = VpnService.prepare(this);
         if (i != null) {
             startActivityForResult(i, REQUEST_CODE_START_VPN);
@@ -103,69 +111,124 @@ public class MainActivity extends Activity {
             start.setEnabled(false);
             stop.setEnabled(true);
             Tun2HttpVpnService.start(this);
-        } else if (requestCode == REQUEST_CODE_CHOOSE_FILE) {
+        } else if (requestCode == REQUEST_CODE_CHOOSE_FILE_RULES) {
             Uri uri = data.getData();
             try {
-                initDb();
-                appendFileToFilterDb(uri);
+                appendRulesToMatcher(uri, R.string.feeding_rules, line -> adBlockMatcher.addRule(line));
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        } else if (requestCode == REQUEST_CODE_CHOOSE_FILE_TRIGGERS) {
+            Uri uri = data.getData();
+            try {
+                appendRulesToMatcher(uri, R.string.feeding_trigger, line -> adBlockMatcher.addBlockedPhrase(line));
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }
     }
 
-    private void initDb() {
-        if (boltDB != null) {
+    private void initMatcher() {
+        if (adBlockMatcher != null) {
             return;
         }
-        String path;
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-            path = getNoBackupFilesDir().getAbsolutePath();
-        } else {
-            path = getFilesDir().getAbsolutePath();
-        }
-        boltDB = Gotun2socks.newBoltDB(path);
 
-        updateDbInfo();
+        adBlockMatcher = Gotun2socks.createMatcher();
     }
 
-    private void appendFileToFilterDb(Uri uri) throws IOException {
+    private void saveToFile(View view) {
+        if (adBlockMatcher == null) {
+            return;
+        }
+
+        new Thread(() -> {
+            long t = System.currentTimeMillis();
+            String filePath = getExternalFilesDir(null).getAbsolutePath() + "/rules.bin";
+            adBlockMatcher.saveToFile(filePath);
+            Log.d("Prof", "dump file size: " + new File(filePath).length());
+            float dt = (System.currentTimeMillis() - t) / 1000.0f;
+            Log.d("Prof", "Adblock matcher dumped " + dt);
+        }).start();
+    }
+
+    private void loadFromFile(View view) {
+        new Thread(() -> {
+            String path = getExternalFilesDir(null).getAbsolutePath() + "/rules.bin";
+            if (new File(path).exists()) {
+                long t = System.currentTimeMillis();
+                adBlockMatcher = Gotun2socks.loadMatcherFromFile(path);
+                adBlockMatcher.build();
+                float dt = (System.currentTimeMillis() - t) / 1000.0f;
+                Log.d("Prof", "Adblock matcher loaded from dump " + dt);
+                runOnUiThread(this::updateDbInfo);
+            }
+        }).start();
+    }
+
+
+    interface FeedCallback {
+        void addRule(String line);
+    }
+
+    private void appendRulesToMatcher(Uri uri, int caption, FeedCallback callback) throws IOException {
         final InputStream inputStream = getContentResolver().openInputStream(uri);
         if (inputStream == null) {
             return;
         }
+
+        initMatcher();
+
         progressDialog = new ProgressDialog(this);
-        progressDialog.setTitle(R.string.feeding_db);
+        progressDialog.setTitle(caption);
         progressDialog.setIndeterminate(true);
         progressDialog.show();
         new Thread(() -> {
             try {
-                BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
+                float dt = 0;
+                String newPath = getExternalFilesDir(null).getAbsolutePath() + "/rules.txt";
+                File targetFile = new File(newPath);
+                OutputStream outStream = new FileOutputStream(targetFile);
+                byte[] buffer = new byte[1024];
+                int len;
+                while ((len = inputStream.read(buffer)) != -1) {
+                    outStream.write(buffer, 0, len);
+                }
+                outStream.close();
+
+               /* BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
+
+                BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(outStream));
                 String line;
-                boltDB.beginTransaction();
                 int i = 0;
                 long start = System.currentTimeMillis();
-                while ((line = reader.readLine()) != null) {
-                    boltDB.addBlockedDomain(line, (byte) 1);
+
+                /*while ((line = reader.readLine()) != null) {
+
+                    final long t = System.currentTimeMillis();
+                   // callback.addRule(line);
                     i++;
 
-                    //    Log.d("Import", i + " Lines imported");
+                    dt += System.currentTimeMillis() - t;
                     if (System.currentTimeMillis() - start > 1000) {
                         final int n = i;
                         MainActivity.this.runOnUiThread(() -> progressDialog.setMessage("Imported " + n + " items"));
                         start = System.currentTimeMillis();
                     }
-                }
-
+                }*/
                 inputStream.close();
 
-                final int n = i;
-                MainActivity.this.runOnUiThread(() -> progressDialog.setMessage(n + " items.Committing changes.."));
+                long t = System.currentTimeMillis();
+                adBlockMatcher.parseRulesFile(newPath);
+                //   final int n = i;
+                //    MainActivity.this.runOnUiThread(() -> progressDialog.setMessage(n + " items.Committing changes.."));
 
-                boltDB.commitTransaction();
                 progressDialog.dismiss();
 
+                adBlockMatcher.build();
                 MainActivity.this.runOnUiThread(this::updateDbInfo);
+
+                dt += (System.currentTimeMillis() - t) / 1000.0f;
+                Log.d("Prof", "AdBlock Dt time: " + dt + "s");
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -173,6 +236,6 @@ public class MainActivity extends Activity {
     }
 
     private void updateDbInfo() {
-        info.setText("Db Path: " + boltDB.path() + "\nDb Size: " + Formatter.formatShortFileSize(this, new File(boltDB.path()).length()));
+        info.setText("Rules loaded " + adBlockMatcher.rulesCount() + " Phrases loaded " + adBlockMatcher.phrasesCount());
     }
 }

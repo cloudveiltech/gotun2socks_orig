@@ -174,7 +174,6 @@ func (ut *udpConnTrack) run() {
 	var e error
 	var remoteIpPort = fmt.Sprintf("%s:%d", ut.remoteIP.String(), ut.remotePort)
 
-	log.Printf("udp request to %s", remoteIpPort)
 	ut.socksConn, e = dialUdpTransparent(remoteIpPort) //bypass udp
 	if e != nil {
 		log.Printf("fail to connect remote ip: %s", e)
@@ -216,7 +215,7 @@ func (ut *udpConnTrack) run() {
 	chRelayUDP := make(chan *gosocks.UDPPacket)
 	go gosocks.UDPReader(udpBind, chRelayUDP, quitUDP)
 
-	start := time.Now()
+	//start := time.Now()
 	for {
 		var t = time.NewTimer(time.Second)
 
@@ -233,18 +232,17 @@ func (ut *udpConnTrack) run() {
 				close(ut.quitBySelf)
 				ut.t2s.clearUDPConnTrack(ut.id)
 				close(quitUDP)
-				log.Printf("UDP exit worker")
 				return
 			}
 
 			ut.send(pkt.Data)
 
 			if ut.t2s.isDNS(ut.remoteIP.String(), ut.remotePort) {
-				dumpDnsResponse(pkt.Data)
+				//dumpDnsResponse(pkt.Data)
 				// DNS-without-fragment only has one request-response
-				end := time.Now()
-				ms := end.Sub(start).Nanoseconds() / 1000000
-				log.Printf("DNS session response received: %d ms ", ms)
+				//	end := time.Now()
+				//	ms := end.Sub(start).Nanoseconds() / 1000000
+				//log.Printf("DNS session response received: %d ms ", ms)
 				if ut.t2s.cache != nil {
 					ut.t2s.cache.store(pkt.Data)
 				}
@@ -253,7 +251,6 @@ func (ut *udpConnTrack) run() {
 				close(ut.quitBySelf)
 				ut.t2s.clearUDPConnTrack(ut.id)
 				close(quitUDP)
-				log.Printf("UDP exit worker")
 				return
 			}
 
@@ -268,7 +265,6 @@ func (ut *udpConnTrack) run() {
 				close(ut.quitBySelf)
 				ut.t2s.clearUDPConnTrack(ut.id)
 				close(quitUDP)
-				log.Printf("UDP exit worker")
 				return
 			}
 
@@ -278,7 +274,6 @@ func (ut *udpConnTrack) run() {
 			close(ut.quitBySelf)
 			ut.t2s.clearUDPConnTrack(ut.id)
 			close(quitUDP)
-			log.Printf("UDP exit worker")
 			return
 
 		case <-t.C:
@@ -287,11 +282,9 @@ func (ut *udpConnTrack) run() {
 			close(ut.quitBySelf)
 			ut.t2s.clearUDPConnTrack(ut.id)
 			close(quitUDP)
-			log.Printf("UDP exit worker")
 			return
 
 		case <-ut.quitByOther:
-			log.Printf("udpConnTrack quitByOther")
 			ut.socksConn.Close()
 			udpBind.Close()
 			close(quitUDP)

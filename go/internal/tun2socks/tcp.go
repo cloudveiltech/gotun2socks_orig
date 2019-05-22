@@ -708,12 +708,10 @@ func (tt *tcpConnTrack) stateEstablished(pkt *tcpPacket) (continu bool, release 
 	}
 	// connection ends by valid RST
 	if pkt.tcp.RST {
-		log.Print("rst")
 		return false, true
 	}
 	// ignore non-ACK packets
 	if !pkt.tcp.ACK {
-		log.Print("ack")
 		return true, true
 	}
 

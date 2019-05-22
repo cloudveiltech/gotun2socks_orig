@@ -14,9 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/text/language"
-	"golang.org/x/text/search"
-
 	"github.com/cloudveiltech/goproxy"
 )
 
@@ -165,7 +162,7 @@ func initGoProxy() {
 
 func dialRemote(req *http.Request) net.Conn {
 	port := ""
-	if !strings.Contains(req.URL.Host, ":") {
+	if !strings.Contains(req.Host, ":") {
 		if req.URL.Scheme == "https" {
 			port = ":443"
 		} else {
@@ -177,14 +174,14 @@ func dialRemote(req *http.Request) net.Conn {
 		conf := tls.Config{
 			//InsecureSkipVerify: true,
 		}
-		remote, err := tls.Dial("tcp", req.URL.Host+port, &conf)
+		remote, err := tls.Dial("tcp", req.Host+port, &conf)
 		if err != nil {
 			log.Printf("Websocket error connect %s", err)
 			return nil
 		}
 		return remote
 	} else {
-		remote, err := net.Dial("tcp", req.URL.Host+port)
+		remote, err := net.Dial("tcp", req.Host+port)
 		if err != nil {
 			log.Printf("Websocket error connect %s", err)
 			return nil
@@ -223,40 +220,44 @@ func startGoProxyServer() {
 
 	proxy.OnRequest().DoFunc(
 		func(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
-			if boltDb.IsDomainBlocked(r.Host) {
+			if adblockMatcher.TestUrlBlocked(r.URL.String(), r.Host) {
 				return r, goproxy.NewResponse(r,
 					goproxy.ContentTypeText, http.StatusForbidden,
 					r.URL.Host+" is blocked by goproxy handler")
 			}
-
 			return r, nil
 		})
 
-	searchMatcher := search.New(language.English, search.IgnoreCase)
-
 	proxy.OnResponse().DoFunc(
 		func(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
+			if resp.StatusCode > 400 { //ignore errors
+				return resp
+			}
+			if !adblockMatcher.IsContentSmallEnoughToFilter(resp.ContentLength) {
+				return resp
+			}
+			if !adblockMatcher.TestContentTypeIsFiltrable(resp.Header.Get("Content-Type")) {
+				return resp
+			}
+
 			buf := new(bytes.Buffer)
 			buf.ReadFrom(resp.Body)
 
 			bytesData := buf.Bytes()
-			bodyString := string(bytesData)
 
 			//since we'd read all body - we need to recreate reader for client here
 			resp.Body.Close()
 			resp.Body = ioutil.NopCloser(bytes.NewBuffer(bytesData))
 
-			start, end := searchMatcher.IndexString(bodyString, "casino")
-			if start != -1 && end != -1 {
-				return goproxy.NewResponse(resp.Request,
-					goproxy.ContentTypeText, http.StatusForbidden,
-					"Blocked by goproxy body parser. Found 'casino' word")
+			if !adblockMatcher.IsContentSmallEnoughToFilter(int64(len(bytesData))) {
+				return resp
 			}
-			start, end = searchMatcher.IndexString(bodyString, "gambling")
-			if start != -1 && end != -1 {
-				return goproxy.NewResponse(resp.Request,
-					goproxy.ContentTypeText, http.StatusForbidden,
-					"Blocked by goproxy body parser. Found 'gambling' word")
+
+			foundPhrase := adblockMatcher.TestContainsForbiddenPhrases(bytesData)
+
+			if foundPhrase != nil {
+				message := fmt.Sprintf("Page is blocked. Trigger word found: %q\n", foundPhrase)
+				return goproxy.NewResponse(resp.Request, goproxy.ContentTypeText, http.StatusForbidden, message)
 			}
 			return resp
 		})
@@ -269,6 +270,6 @@ func startGoProxyServer() {
 func stopGoProxyServer() {
 	context, _ := context.WithTimeout(context.Background(), 1*time.Second)
 	server.Shutdown(context)
-	
+
 	server = nil
 }

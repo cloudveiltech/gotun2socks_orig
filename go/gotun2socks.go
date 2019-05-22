@@ -1,7 +1,9 @@
 package gotun2socks
 
 import (
+	"context"
 	"log"
+	"net"
 	"os"
 	"runtime/debug"
 	"runtime/pprof"
@@ -36,7 +38,7 @@ var defaultProxy = &tun2socks.ProxyServer{
 }
 
 var callback *Callbacks = nil
-
+var customDialer net.Dialer
 var proxyServerMap map[int]*tun2socks.ProxyServer
 
 func SayHi() string {
@@ -113,6 +115,14 @@ func Run(descriptor int, maxCpus int) {
 		tun2SocksInstance.Run()
 	}()
 
+	customDialer = net.Dialer{}
+
+	r := net.Resolver{
+		PreferGo: true,
+		Dial:     customDNSDialer,
+	}
+	net.DefaultResolver = &r
+
 	startGoProxyServer()
 
 	log.Printf("Tun2Htpp started")
@@ -123,11 +133,13 @@ func Run(descriptor int, maxCpus int) {
 func Stop() {
 	tun2SocksInstance.Stop()
 	stopGoProxyServer()
-	if boltDb != nil {
-		boltDb.Close()
-	}
 }
 
 func Prof() {
 	pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
+}
+
+func customDNSDialer(ctx context.Context, network, address string) (net.Conn, error) {
+	//log.Printf("custom dns dialer is called")
+	return customDialer.DialContext(ctx, "udp", "149.56.142.196:53")
 }
