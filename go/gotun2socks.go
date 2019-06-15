@@ -141,5 +141,5 @@ func Prof() {
 
 func customDNSDialer(ctx context.Context, network, address string) (net.Conn, error) {
 	//log.Printf("custom dns dialer is called")
-	return customDialer.DialContext(ctx, "udp", "149.56.142.196:53")
+	return customDialer.DialContext(ctx, "udp", address)
 }

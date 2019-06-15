@@ -1,7 +1,6 @@
 package gotun2socks
 
 import (
-	"bufio"
 	"compress/gzip"
 	"encoding/gob"
 	"log"
@@ -39,45 +38,6 @@ func (am *AdBlockMatcher) addMatcher() {
 	matcher := adblock.NewMatcher()
 	adblockMatcher.Matchers = append(adblockMatcher.Matchers, matcher)
 	adblockMatcher.lastMatcher = matcher
-}
-
-func (am *AdBlockMatcher) AddRule(rule string) {
-	r, e := adblock.ParseRule(rule)
-
-	if e != nil {
-		log.Printf("Error parsing rule %s %s", rule, e)
-		return
-	}
-	if r == nil {
-		log.Printf("Error parsing rule is nil")
-		return
-	}
-
-	if am.RulesCnt%MAX_RULES_PER_MATCHER == 0 {
-		am.addMatcher()
-	}
-
-	am.lastMatcher.AddRule(r, am.RulesCnt)
-
-	am.RulesCnt = am.RulesCnt + 1
-}
-
-func (am *AdBlockMatcher) ParseRulesFile(filePath string) {
-	file, err := os.Open(filePath)
-	defer file.Close()
-
-	if err != nil {
-		log.Printf("Error open file %s %s", filePath, err)
-		return
-	}
-
-	// Start reading from the file using a scanner.
-	scanner := bufio.NewScanner(file)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		am.AddRule(line)
-	}
 }
 
 func (am *AdBlockMatcher) TestUrlBlocked(url string, host string) bool {

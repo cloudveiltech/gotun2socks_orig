@@ -22,12 +22,10 @@ import gotun2socks.Gotun2socks;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_CODE_CHOOSE_FILE_RULES = 0;
-    private static final int REQUEST_CODE_CHOOSE_FILE_TRIGGERS = 1;
     private static final int REQUEST_CODE_START_VPN = 2;
     Button start;
     Button stop;
     Button loadRules;
-    Button loadTriggers;
     Button loadFromFile;
     Button saveToFile;
     Button prof;
@@ -45,7 +43,6 @@ public class MainActivity extends Activity {
         start = findViewById(R.id.start);
         stop = findViewById(R.id.stop);
         loadRules = findViewById(R.id.load_rules);
-        loadTriggers = findViewById(R.id.load_triggers);
         info = findViewById(R.id.info);
         prof = findViewById(R.id.prof);
         loadFromFile = findViewById(R.id.load_from_file);
@@ -54,7 +51,6 @@ public class MainActivity extends Activity {
         start.setOnClickListener(v -> startVpn());
         stop.setOnClickListener(v -> stopVpn());
         loadRules.setOnClickListener(v -> loadRules(REQUEST_CODE_CHOOSE_FILE_RULES));
-        loadTriggers.setOnClickListener(v -> loadRules(REQUEST_CODE_CHOOSE_FILE_TRIGGERS));
         loadFromFile.setOnClickListener(this::loadFromFile);
         saveToFile.setOnClickListener(this::saveToFile);
         prof.setOnClickListener(v -> Gotun2socks.prof());
@@ -70,7 +66,7 @@ public class MainActivity extends Activity {
         Intent intent;
         chooseFile = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         chooseFile.addCategory(Intent.CATEGORY_OPENABLE);
-        chooseFile.setType("text/plain");
+        chooseFile.setType("application/zip");
         intent = Intent.createChooser(chooseFile, "Choose a file");
         startActivityForResult(intent, requestId);
     }
@@ -114,14 +110,7 @@ public class MainActivity extends Activity {
         } else if (requestCode == REQUEST_CODE_CHOOSE_FILE_RULES) {
             Uri uri = data.getData();
             try {
-                appendRulesToMatcher(uri, R.string.feeding_rules, line -> adBlockMatcher.addRule(line));
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        } else if (requestCode == REQUEST_CODE_CHOOSE_FILE_TRIGGERS) {
-            Uri uri = data.getData();
-            try {
-                appendRulesToMatcher(uri, R.string.feeding_trigger, line -> adBlockMatcher.addBlockedPhrase(line));
+                appendRulesToMatcher(uri, R.string.feeding_rules);
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -165,12 +154,7 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-
-    interface FeedCallback {
-        void addRule(String line);
-    }
-
-    private void appendRulesToMatcher(Uri uri, int caption, FeedCallback callback) throws IOException {
+    private void appendRulesToMatcher(Uri uri, int caption) throws IOException {
         final InputStream inputStream = getContentResolver().openInputStream(uri);
         if (inputStream == null) {
             return;
@@ -185,7 +169,7 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             try {
                 float dt = 0;
-                String newPath = getExternalFilesDir(null).getAbsolutePath() + "/rules.txt";
+                String newPath = getExternalFilesDir(null).getAbsolutePath() + "/rules.zip";
                 File targetFile = new File(newPath);
                 OutputStream outStream = new FileOutputStream(targetFile);
                 byte[] buffer = new byte[1024];
@@ -195,30 +179,10 @@ public class MainActivity extends Activity {
                 }
                 outStream.close();
 
-               /* BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
-
-                BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(outStream));
-                String line;
-                int i = 0;
-                long start = System.currentTimeMillis();
-
-                /*while ((line = reader.readLine()) != null) {
-
-                    final long t = System.currentTimeMillis();
-                   // callback.addRule(line);
-                    i++;
-
-                    dt += System.currentTimeMillis() - t;
-                    if (System.currentTimeMillis() - start > 1000) {
-                        final int n = i;
-                        MainActivity.this.runOnUiThread(() -> progressDialog.setMessage("Imported " + n + " items"));
-                        start = System.currentTimeMillis();
-                    }
-                }*/
                 inputStream.close();
 
                 long t = System.currentTimeMillis();
-                adBlockMatcher.parseRulesFile(newPath);
+                adBlockMatcher.parseRulesZipArchive(newPath);
                 //   final int n = i;
                 //    MainActivity.this.runOnUiThread(() -> progressDialog.setMessage(n + " items.Committing changes.."));
 
