@@ -463,7 +463,6 @@ func (c *dnsCache) store(payload []byte) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	key := cacheKey(resp.Question[0])
-	log.Printf("cache DNS response for %s", key)
 	c.storage[key] = &dnsCacheEntry{
 		msg: resp,
 		exp: time.Now().Add(time.Duration(resp.Answer[0].Header().Ttl) * time.Second),

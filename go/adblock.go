@@ -12,8 +12,10 @@ import (
 )
 
 const MAX_RULES_PER_MATCHER = 1000
-const MAX_CONTENT_SIZE_SCAN = 100 * 1024 //100kb max to scan
+const MAX_CONTENT_SIZE_SCAN = 300 * 1024 //100kb max to scan
 var adblockMatcher *AdBlockMatcher
+
+var blockPageContent = "%url% is blocked. Category %category%. Reason %reason%"
 
 type AdBlockMatcher struct {
 	Matchers     []*adblock.RuleMatcher
@@ -38,6 +40,13 @@ func (am *AdBlockMatcher) addMatcher() {
 	matcher := adblock.NewMatcher()
 	adblockMatcher.Matchers = append(adblockMatcher.Matchers, matcher)
 	adblockMatcher.lastMatcher = matcher
+}
+
+func GetBlockPage(url string, category string, reason string) string {
+	tagsReplacer := strings.NewReplacer("%url%", url,
+		"%category%", category,
+		"%reason%", reason)
+	return tagsReplacer.Replace(blockPageContent)
 }
 
 func (am *AdBlockMatcher) TestUrlBlocked(url string, host string) bool {
@@ -65,7 +74,9 @@ func (am *AdBlockMatcher) TestUrlBlocked(url string, host string) bool {
 }
 
 func (am *AdBlockMatcher) TestContentTypeIsFiltrable(contentType string) bool {
-	return strings.Contains(contentType, "html") || strings.Contains(contentType, "json")
+	return strings.Contains(contentType, "html") ||
+		strings.Contains(contentType, "json") ||
+		strings.Contains(contentType, "text")
 }
 
 func (am *AdBlockMatcher) IsContentSmallEnoughToFilter(contentSize int64) bool {
@@ -87,7 +98,7 @@ func (am *AdBlockMatcher) AddBlockedPhrase(phrase string) {
 func (am *AdBlockMatcher) Build() {
 	regexString := strings.Join(am.Phrases, "|")
 	var e error
-	am.regexp, e = regexp.Compile(regexString)
+	am.regexp, e = regexp.Compile("(?i)" + regexString)
 	if e != nil {
 		log.Printf("Error compiling matcher %s", e)
 	}

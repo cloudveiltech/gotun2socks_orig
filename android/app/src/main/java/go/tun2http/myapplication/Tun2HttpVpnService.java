@@ -73,8 +73,10 @@ public class Tun2HttpVpnService extends VpnService {
         builder.addAddress("10.0.0.2", 32);
         builder.addRoute("0.0.0.0", 0);
         builder.addRoute("0:0:0:0:0:0:0:0", 0);
-    //    builder.addDnsServer("149.56.142.196");
-     //   builder.addDnsServer("198.58.111.139");
+
+        String dnsServer = "8.8.8.8";//"198.58.111.139"
+        builder.addDnsServer(dnsServer);
+        Gotun2socks.setDnsServer(dnsServer);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             try {

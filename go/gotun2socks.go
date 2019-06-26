@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime/debug"
 	"runtime/pprof"
+	"strings"
 
 	"github.com/dkwiebe/gotun2socks/internal/tun"
 	"github.com/dkwiebe/gotun2socks/internal/tun2socks"
@@ -37,6 +38,7 @@ var defaultProxy = &tun2socks.ProxyServer{
 	Password:   "",
 }
 
+var dnsServer string = ""
 var callback *Callbacks = nil
 var customDialer net.Dialer
 var proxyServerMap map[int]*tun2socks.ProxyServer
@@ -93,6 +95,13 @@ func SetUidCallback(javaCallback JavaUidCallback) {
 	log.Printf("Uid callback set")
 }
 
+func SetDnsServer(server string) {
+	dnsServer = server
+	if !strings.Contains(server, ":") {
+		dnsServer = server + ":53"
+	}
+}
+
 func Run(descriptor int, maxCpus int) {
 	//runtime.GOMAXPROCS(maxCpus)
 
@@ -117,11 +126,13 @@ func Run(descriptor int, maxCpus int) {
 
 	customDialer = net.Dialer{}
 
-	r := net.Resolver{
-		PreferGo: true,
-		Dial:     customDNSDialer,
+	if len(dnsServer) > 0 {
+		r := net.Resolver{
+			PreferGo: true,
+			Dial:     customDNSDialer,
+		}
+		net.DefaultResolver = &r
 	}
-	net.DefaultResolver = &r
 
 	startGoProxyServer()
 
@@ -141,5 +152,5 @@ func Prof() {
 
 func customDNSDialer(ctx context.Context, network, address string) (net.Conn, error) {
 	//log.Printf("custom dns dialer is called")
-	return customDialer.DialContext(ctx, "udp", address)
+	return customDialer.DialContext(ctx, "udp", dnsServer)
 }
