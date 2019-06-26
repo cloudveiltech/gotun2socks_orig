@@ -29,12 +29,14 @@ type PhraseCategory struct {
 }
 
 type AdBlockMatcher struct {
-	MatcherCategories []*MatcherCategory
-	PhraseCategories  []*PhraseCategory
-	lastMatcher       *adblock.RuleMatcher
-	RulesCnt          int
-	phrasesCount      int
-	BlockPageContent  string
+	MatcherCategories       []*MatcherCategory
+	BypassMatcherCategories []*MatcherCategory
+	PhraseCategories        []*PhraseCategory
+	lastMatcher             *adblock.RuleMatcher
+	RulesCnt                int
+	phrasesCount            int
+	bypassEnabled           bool
+	BlockPageContent        string
 }
 
 func CreateMatcher() *AdBlockMatcher {
@@ -46,7 +48,7 @@ func CreateMatcher() *AdBlockMatcher {
 	return adblockMatcher
 }
 
-func (am *AdBlockMatcher) addMatcher(category string) {
+func (am *AdBlockMatcher) addMatcher(category string, bypass bool) {
 	matcher := adblock.NewMatcher()
 	var categoryMatcher *MatcherCategory
 	for _, element := range adblockMatcher.MatcherCategories {
@@ -61,7 +63,11 @@ func (am *AdBlockMatcher) addMatcher(category string) {
 			Category: category,
 		}
 
-		am.MatcherCategories = append(am.MatcherCategories, categoryMatcher)
+		if bypass {
+			am.BypassMatcherCategories = append(am.BypassMatcherCategories, categoryMatcher)
+		} else {
+			am.MatcherCategories = append(am.MatcherCategories, categoryMatcher)
+		}
 	}
 
 	categoryMatcher.Matchers = append(categoryMatcher.Matchers, matcher)
@@ -76,12 +82,25 @@ func (am *AdBlockMatcher) GetBlockPage(url string, category string, reason strin
 }
 
 func (am *AdBlockMatcher) TestUrlBlocked(url string, host string) *string {
+	res := am.matchRulesCategories(am.MatcherCategories, url, host)
+	if res != nil {
+		return res
+	}
+
+	if am.bypassEnabled {
+		return nil
+	}
+
+	return am.matchRulesCategories(am.BypassMatcherCategories, url, host)
+}
+
+func (am *AdBlockMatcher) matchRulesCategories(matcherCategories []*MatcherCategory, url string, host string) *string {
 	rq := &adblock.Request{
 		URL:    url,
 		Domain: host,
 	}
 
-	for _, matcherCategory := range am.MatcherCategories {
+	for _, matcherCategory := range matcherCategories {
 		for _, matcher := range matcherCategory.Matchers {
 			matched, _, err := matcher.Match(rq)
 			if err != nil {
@@ -93,6 +112,7 @@ func (am *AdBlockMatcher) TestUrlBlocked(url string, host string) *string {
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -206,4 +226,12 @@ func LoadMatcherFromFile(filePath string) *AdBlockMatcher {
 		log.Printf("Decoder error %s", err)
 	}
 	return adblockMatcher
+}
+
+func (am *AdBlockMatcher) EnableBypass() {
+	am.bypassEnabled = true
+}
+
+func (am *AdBlockMatcher) DisaleBypass() {
+	am.bypassEnabled = false
 }

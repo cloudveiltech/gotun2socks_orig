@@ -26,6 +26,8 @@ public class MainActivity extends Activity {
     Button start;
     Button stop;
     Button loadRules;
+    Button enableBypass;
+    Button disableBypass;
     Button loadFromFile;
     Button saveToFile;
     Button prof;
@@ -46,6 +48,8 @@ public class MainActivity extends Activity {
         info = findViewById(R.id.info);
         prof = findViewById(R.id.prof);
         loadFromFile = findViewById(R.id.load_from_file);
+        enableBypass = findViewById(R.id.enable_bypass);
+        disableBypass = findViewById(R.id.disable_bypass);
         saveToFile = findViewById(R.id.save_to_file);
 
         start.setOnClickListener(v -> startVpn());
@@ -53,12 +57,31 @@ public class MainActivity extends Activity {
         loadRules.setOnClickListener(v -> loadRules(REQUEST_CODE_CHOOSE_FILE_RULES));
         loadFromFile.setOnClickListener(this::loadFromFile);
         saveToFile.setOnClickListener(this::saveToFile);
+
+        enableBypass.setOnClickListener(this::enableBypass);
+        disableBypass.setOnClickListener(this::disableBypass);
+
         prof.setOnClickListener(v -> Gotun2socks.prof());
 
 
         start.setEnabled(true);
         stop.setEnabled(false);
 
+    }
+
+    private void enableBypass(View view) {
+        if(adBlockMatcher == null) {
+            return;
+        }
+        adBlockMatcher.enableBypass();
+    }
+
+    private void disableBypass(View view) {
+        if(adBlockMatcher == null) {
+            return;
+        }
+
+        adBlockMatcher.disaleBypass();
     }
 
     private void loadRules(int requestId) {

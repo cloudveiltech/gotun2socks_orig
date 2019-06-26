@@ -22,7 +22,7 @@ func (am *AdBlockMatcher) ParseRulesZipArchive(filePath string) {
 	}
 }
 
-func (am *AdBlockMatcher) AddRule(rule string, category string) {
+func (am *AdBlockMatcher) AddRule(rule string, category string, bypass bool) {
 	r, e := adblock.ParseRule(rule)
 
 	if e != nil {
@@ -35,7 +35,7 @@ func (am *AdBlockMatcher) AddRule(rule string, category string) {
 	}
 
 	if am.RulesCnt%MAX_RULES_PER_MATCHER == 0 {
-		am.addMatcher(category)
+		am.addMatcher(category, bypass)
 	}
 
 	am.lastMatcher.AddRule(r, am.RulesCnt)
@@ -56,12 +56,18 @@ func (am *AdBlockMatcher) ParseZipRulesFile(file *zip.File) {
 		am.addBlockPageFromZipFile(file)
 	} else {
 		scanner := bufio.NewScanner(fileDescriptor)
+		categoryName := file.Name
 		if strings.Contains(file.Name, ".triggers") {
 			log.Printf("Opening triggers %s", file.Name)
-			am.addPhrasesFromScanner(scanner, file.Name)
+			am.addPhrasesFromScanner(scanner, categoryName)
+		} else if strings.Contains(file.Name, ".bypass") {
+			am.addMatcher(categoryName, true)
+			log.Printf("Opening bypass %s", file.Name)
+			am.addRulesFromScanner(scanner, categoryName, true)
 		} else if strings.Contains(file.Name, ".rules") {
+			am.addMatcher(categoryName, false)
 			log.Printf("Opening rules %s", file.Name)
-			am.addRulesFromScanner(scanner, file.Name)
+			am.addRulesFromScanner(scanner, categoryName, false)
 		} else {
 			log.Printf("File type recognition failed %s", file.Name)
 		}
@@ -81,10 +87,10 @@ func (am *AdBlockMatcher) addBlockPageFromZipFile(file *zip.File) {
 	am.BlockPageContent = string(content)
 }
 
-func (am *AdBlockMatcher) addRulesFromScanner(scanner *bufio.Scanner, categoryName string) {
+func (am *AdBlockMatcher) addRulesFromScanner(scanner *bufio.Scanner, categoryName string, bypass bool) {
 	for scanner.Scan() {
 		line := scanner.Text()
-		am.AddRule(line, categoryName)
+		am.AddRule(line, categoryName, bypass)
 	}
 }
 

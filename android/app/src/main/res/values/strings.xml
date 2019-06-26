@@ -9,4 +9,6 @@
     <string name="load_phrases_from_local_file">Load triggers from local file</string>
     <string name="save_to_file">Save To File</string>
     <string name="load_from_file">Load From File</string>
+    <string name="enable_bypass">Enable bypass</string>
+    <string name="disable_bypass">Disable bypass</string>
 </resources>

@@ -31,6 +31,19 @@
         android:layout_height="wrap_content"
         android:text="@string/stop" />
 
+
+    <Button
+        android:id="@+id/enable_bypass"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/enable_bypass" />
+
+    <Button
+        android:id="@+id/disable_bypass"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/disable_bypass" />
+
     <Button
         android:id="@+id/prof"
         android:layout_width="wrap_content"
