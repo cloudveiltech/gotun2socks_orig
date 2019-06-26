@@ -220,10 +220,11 @@ func startGoProxyServer() {
 
 	proxy.OnRequest().DoFunc(
 		func(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
-			if adblockMatcher.TestUrlBlocked(r.URL.String(), r.Host) {
+			category := adblockMatcher.TestUrlBlocked(r.URL.String(), r.Host)
+			if category != nil {
 				return r, goproxy.NewResponse(r,
-					goproxy.ContentTypeText, http.StatusForbidden,
-					GetBlockPage(r.URL.String(), "unknown", "Blocked by server policy"))
+					goproxy.ContentTypeHtml, http.StatusForbidden,
+					adblockMatcher.GetBlockPage(r.URL.String(), *category, "Blocked by server policy"))
 			}
 			return r, nil
 		})
@@ -256,11 +257,11 @@ func startGoProxyServer() {
 				return resp
 			}
 
-			foundPhrase := adblockMatcher.TestContainsForbiddenPhrases(bytesData)
+			category := adblockMatcher.TestContainsForbiddenPhrases(bytesData)
 
-			if foundPhrase != nil {
-				message := GetBlockPage(resp.Request.URL.String(), "unknown", "Trigger text found")
-				return goproxy.NewResponse(resp.Request, goproxy.ContentTypeText, http.StatusForbidden, message)
+			if category != nil {
+				message := adblockMatcher.GetBlockPage(resp.Request.URL.String(), *category, "Trigger text found")
+				return goproxy.NewResponse(resp.Request, goproxy.ContentTypeHtml, http.StatusForbidden, message)
 			}
 			return resp
 		})
