@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -22,73 +21,9 @@ var (
 	server *http.Server
 )
 
-var caCert = []byte(`-----BEGIN CERTIFICATE-----
-MIICwDCCAaigAwIBAgIIcAkf52hi77UwDQYJKoZIhvcNAQELBQAwCzEJMAcGA1UEAwwAMB4XDTE3
-MTIxNjE3MDUwM1oXDTIzMTIxNjE3MDUwM1owCzEJMAcGA1UEAwwAMIIBIjANBgkqhkiG9w0BAQEF
-AAOCAQ8AMIIBCgKCAQEAjn9w+G7+wYPyv4gTGrL74TkhaVco2dCHjEJM9EugL2zrpX50yNp55MR/
-MGGStlPamh35Pgu0w+EryWgdAUCYjVzPVsrOqDh687ak6qsGrma+VMujCNcklug4loUUN6rbmN/Y
-42U0qmg0oTvvwqlBOKaR5elqiinyc0QM1Rq93DOizWXCxOqGBuouPoFKU4eMtlou4RQdGqOKhL75
-grNh13b2njjVOddviF3HFqBBBujeNV9yKRNBhTBTLlcn284tJVBaQ/ZCdJe4N3Tyrww0sIHTwcxh
-3qEHxe5qyVi4eLXngcArTjKBAv2tdYHukeVse39leP8+h0tlOw6f98O26QIDAQABoygwJjATBgNV
-HSUEDDAKBggrBgEFBQcDATAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQBHLZgk
-WqOYE4Xb8TkhAa7sR/9ngXx+YtHrzSVAH22i4u9Jzli/PHFMBImUn1vaXMObQjJyulJRMLdtSOOS
-0vxbivnw7/cTFUIOz0rGTxduJir4nNE+cd/jvJpcGJlvts2ro8Ehocl8Ia8xnxdXzmHicEY3bWJd
-YUb2eiIu0jD41tv27VRFnDCPVKTZhs8/Ngu3BoPwFWyAviultIqekbEY9SJdoEcNks3fXTHoYCgD
-Szjm7nzomM2FSNYP3nyEf7DgDwMT+R+Yu3AgsiBqFw5hyaxKI+jGE2COQ2m/TcZMeZCdj4h/GAyf
-Cj7HthDkIs7LqrAx5lx2vwN4ZHCbd1S1
------END CERTIFICATE-----`)
-
-var caKey = []byte(`-----BEGIN RSA PRIVATE KEY-----
-MIIEoAIBAAKCAQEAjn9w+G7+wYPyv4gTGrL74TkhaVco2dCHjEJM9EugL2zrpX50
-yNp55MR/MGGStlPamh35Pgu0w+EryWgdAUCYjVzPVsrOqDh687ak6qsGrma+VMuj
-CNcklug4loUUN6rbmN/Y42U0qmg0oTvvwqlBOKaR5elqiinyc0QM1Rq93DOizWXC
-xOqGBuouPoFKU4eMtlou4RQdGqOKhL75grNh13b2njjVOddviF3HFqBBBujeNV9y
-KRNBhTBTLlcn284tJVBaQ/ZCdJe4N3Tyrww0sIHTwcxh3qEHxe5qyVi4eLXngcAr
-TjKBAv2tdYHukeVse39leP8+h0tlOw6f98O26QIDAQABAoIBAB6lnBdiT9ow1bGJ
-w4oXeoKq9duhCkEmTzDERaa46R+qDlhOhTF5g4PHGw+9vH8IM9i3n5ZPkDYcpH0x
-riNJ0EV+83zYK3AUjaUC4B80X0B9CmxUS6EoHE90bE87GekLDyWm5w+pAZWwybjv
-mhZErqlPcct/0xEaCnHt7dCbasAD7Ef1Jd1aCNAVFCOhrn3EpMlbe/UNXsfnXS8C
-Germi+4R89T+AjQS+wTNgqDhbR+W8tC50xZbm4VFWhyzmLTwmKKzi3Mcp8/Ph3Wk
-aZJwxnoOvLwvhCCv/T/AGjmO72/LWDKyQi27J5iWp2xDBqOrEykVF7DMQTNSwPZ2
-YNoTc+0CgYEA1mqp4g0uxo0FSmOyBLN/uf8tuyuIwhPmSMccrior74etlaqIfo6e
-yaALi4ccw8ma857xsT1kMSlc0qn9TorPWoyP5iBQO/F8pUpCtVcjUTF225hhB04V
-vI5AjZ9zaCSlJO0Sh/2yiIEkOgfjr7Eu6mAyr7oMP1ygg4bfNSnXxocCgYEAqiIo
-lVpAxFLK0qj+RjK581XWB3zH25ftbA1z7UhIjY/07yDz3PFFRPEoH80epq+ZdwHw
-XQFuC2JnPyreqeJqsn+J+0+CTR6NWOdHEW3hR7Oeiw+ttregrBUqAT2QE9Dhxh8o
-p5Uz0+V3TPrSvKiPTG8GJyLcqC0VfXq7K/Q4gw8CgYAd1aOjx4/NosusqSiZDNzl
-5YLYe1tBHgG5+LKd7VJFtwxJOfxaF8Ayb+mLVZaEC6Za5a/dqJwrVwUKbwrHBfuK
-LurK644eeSCN40Ja9y/72TUfoxlFKfFOVkDXM+ub/xVXiQE+GOfhpI6E4Jom1TGg
-/RewaePQYTQYeQjP3e2fOwKBgHsOyAH3TP9zzwZ+e6T0zfFG9c9mnvyjsHRGasKH
-VQsnxAcu85Ss4uiR8e7Go9P3EW619VCgVyNe4sUa0gFZJsnDXF9tTBdR8PUMHChs
-LNV7A0McbQ7LVSkDCeXpzIu4u4VdRj+ouNscj6Ubi1AwL64eY/nsymPOcEvZeQa6
-2CFbAn9ZkPGtR8GcRpCj3Xe3cvFtnLCoYLHcMsfYtJdNuzgc+NxsHRE8Htv+FNuz
-OgKjx8bYAEtKcK1nHl/KPYj12JGPIbTrUDgSseL6s1+B9i9qUDuepWBLVGHyL7hY
-8komlPI4M1/6nkIuOCkQtdm6H8EdfIHM34JH0mUkLapm+gEj
------END RSA PRIVATE KEY-----`)
-
-func setCA() error {
-	goproxyCa, err := tls.X509KeyPair(caCert, caKey)
-	if err != nil {
-		log.Fatalf("Can't load cert key/file")
-		return err
-	}
-	if goproxyCa.Leaf, err = x509.ParseCertificate(goproxyCa.Certificate[0]); err != nil {
-		log.Fatalf("Can't parse cert key/file")
-		return err
-	}
-	goproxy.GoproxyCa = goproxyCa
-	goproxy.OkConnect = &goproxy.ConnectAction{Action: goproxy.ConnectAccept, TLSConfig: goproxy.TLSConfigFromCA(&goproxyCa)}
-	goproxy.MitmConnect = &goproxy.ConnectAction{Action: goproxy.ConnectMitm, TLSConfig: goproxy.TLSConfigFromCA(&goproxyCa)}
-	goproxy.HTTPMitmConnect = &goproxy.ConnectAction{Action: goproxy.ConnectHTTPMitm, TLSConfig: goproxy.TLSConfigFromCA(&goproxyCa)}
-	goproxy.RejectConnect = &goproxy.ConnectAction{Action: goproxy.ConnectReject, TLSConfig: goproxy.TLSConfigFromCA(&goproxyCa)}
-	return nil
-}
-
 func initGoProxy() {
 	//fd, _ := os.Create("err.txt")
 	//redirectStderr(fd)
-
-	setCA()
 
 	proxy = goproxy.NewProxyHttpServer()
 	proxy.Verbose = false
@@ -205,8 +140,9 @@ func startHttpServer() *http.Server {
 	return srv
 }
 
-func startGoProxyServer() {
+func startGoProxyServer(certPath, certKeyPath string) {
 	initGoProxy()
+	LoadAndSetCa(certPath, certKeyPath)
 
 	if proxy == nil {
 		return
@@ -237,9 +173,7 @@ func startGoProxyServer() {
 			if resp.StatusCode > 400 { //ignore errors
 				return resp
 			}
-			if !adblockMatcher.IsContentSmallEnoughToFilter(resp.ContentLength) {
-				return resp
-			}
+
 			if !adblockMatcher.TestContentTypeIsFiltrable(resp.Header.Get("Content-Type")) {
 				return resp
 			}
@@ -272,8 +206,9 @@ func startGoProxyServer() {
 }
 
 func stopGoProxyServer() {
-	context, _ := context.WithTimeout(context.Background(), 1*time.Second)
-	server.Shutdown(context)
-
-	server = nil
+	if server != nil {
+		context, _ := context.WithTimeout(context.Background(), 1*time.Second)
+		server.Shutdown(context)
+		server = nil
+	}
 }

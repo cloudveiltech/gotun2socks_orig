@@ -102,7 +102,7 @@ func SetDnsServer(server string) {
 	}
 }
 
-func Run(descriptor int, maxCpus int) {
+func Run(descriptor int, maxCpus int, startLocalServer bool, certPath, certKeyPath string) {
 	//runtime.GOMAXPROCS(maxCpus)
 
 	var tunAddr string = "10.253.253.253"
@@ -134,7 +134,9 @@ func Run(descriptor int, maxCpus int) {
 		net.DefaultResolver = &r
 	}
 
-	startGoProxyServer()
+	if startLocalServer {
+		startGoProxyServer(certPath, certKeyPath)
+	}
 
 	log.Printf("Tun2Htpp started")
 	debug.SetTraceback("all")

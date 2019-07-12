@@ -5,14 +5,15 @@ import (
 	"encoding/gob"
 	"log"
 	"os"
-	"regexp"
 	"strings"
 
 	"github.com/pmezard/adblock/adblock"
+
+	"github.com/dkwiebe/gotun2socks/internal/flashtext"
 )
 
 const MAX_RULES_PER_MATCHER = 1000
-const MAX_CONTENT_SIZE_SCAN = 200 * 1024 //200kb max to scan
+const MAX_CONTENT_SIZE_SCAN = 500 * 1024 //500kb max to scan
 var adblockMatcher *AdBlockMatcher
 
 var defaultBlockPageContent = "%url% is blocked. Category %category%. Reason %reason%"
@@ -23,9 +24,9 @@ type MatcherCategory struct {
 }
 
 type PhraseCategory struct {
-	Category string
-	Phrases  []string
-	regexp   *regexp.Regexp
+	Category  string
+	Phrases   []string
+	processor *flashtext.KeywordProcessor
 }
 
 type AdBlockMatcher struct {
@@ -123,15 +124,17 @@ func (am *AdBlockMatcher) TestContentTypeIsFiltrable(contentType string) bool {
 }
 
 func (am *AdBlockMatcher) IsContentSmallEnoughToFilter(contentSize int64) bool {
-	return contentSize < MAX_CONTENT_SIZE_SCAN
+	log.Printf("Content Size testing is %d, maxSize is %d", contentSize, MAX_CONTENT_SIZE_SCAN)
+
+	return contentSize > 0 && contentSize < MAX_CONTENT_SIZE_SCAN
 }
 
 func (am *AdBlockMatcher) TestContainsForbiddenPhrases(str []byte) *string {
+	stripped := string(str)
+
 	for _, phraseCategory := range am.PhraseCategories {
-		if phraseCategory.regexp != nil {
-			if phraseCategory.regexp.Find(str) != nil {
-				return &phraseCategory.Category
-			}
+		if phraseCategory.processor.TestHaveKeywords(stripped) {
+			return &phraseCategory.Category
 		}
 	}
 
@@ -155,19 +158,18 @@ func (am *AdBlockMatcher) AddBlockedPhrase(phrase string, category string) {
 		am.PhraseCategories = append(am.PhraseCategories, phraseCategory)
 	}
 
-	phraseCategory.Phrases = append(phraseCategory.Phrases, regexp.QuoteMeta(phrase))
+	phraseCategory.Phrases = append(phraseCategory.Phrases, phrase)
 }
 
 func (am *AdBlockMatcher) Build() {
 	am.phrasesCount = 0
 	for _, phraseCategory := range am.PhraseCategories {
-		regexString := strings.Join(phraseCategory.Phrases, "|")
+		processor := flashtext.NewKeywordProcessor()
 
-		var e error
-		phraseCategory.regexp, e = regexp.Compile("(?i)" + regexString)
-		if e != nil {
-			log.Printf("Error compiling matcher %s", e)
-		}
+		processor.SetCaseSenstive(false)
+		processor.AddKeywords(phraseCategory.Phrases)
+		phraseCategory.processor = processor
+
 		am.phrasesCount += len(phraseCategory.Phrases)
 	}
 
