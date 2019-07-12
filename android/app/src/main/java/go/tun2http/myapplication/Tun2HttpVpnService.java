@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.VpnService;
 import android.os.Build;
+import android.os.Environment;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.text.TextUtils;
@@ -38,7 +39,9 @@ public class Tun2HttpVpnService extends VpnService {
             setupProxyServers();
             Builder builder = setupBuilder();
             parcelFileDescriptor = builder.establish();
-            Gotun2socks.run(parcelFileDescriptor.getFd(), MAX_CPUS);
+
+            String dir = Environment.getExternalStorageDirectory().getAbsolutePath();
+            Gotun2socks.run(parcelFileDescriptor.getFd(), MAX_CPUS, true, dir + "/self_cert.pem", dir + "/self_cert.key");
         }
     }
 

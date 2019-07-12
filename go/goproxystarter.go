@@ -16,6 +16,8 @@ import (
 	"github.com/cloudveiltech/goproxy"
 )
 
+import _ "net/http/pprof"
+
 var (
 	proxy  *goproxy.ProxyHttpServer
 	server *http.Server
@@ -129,6 +131,10 @@ func startHttpServer() *http.Server {
 	srv.Handler = proxy
 
 	go func() {
+		log.Println(http.ListenAndServe(":6060", nil))
+	}()
+
+	go func() {
 		if err := srv.ListenAndServe(); err != nil {
 			// cannot panic, because this probably is an intentional close
 			log.Printf("Httpserver: ListenAndServe() error: %s", err)
@@ -170,6 +176,7 @@ func startGoProxyServer(certPath, certKeyPath string) {
 			if resp == nil {
 				return resp
 			}
+
 			if resp.StatusCode > 400 { //ignore errors
 				return resp
 			}

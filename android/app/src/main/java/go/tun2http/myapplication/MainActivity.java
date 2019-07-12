@@ -1,11 +1,17 @@
 package go.tun2http.myapplication;
 
+import android.Manifest;
+import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.ProgressDialog;
+import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.net.VpnService;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
@@ -109,6 +115,21 @@ public class MainActivity extends Activity {
     }
 
     private void startVpn() {
+        if(!checkPermissions()) {
+            return;
+        }
+
+        String dir =  Environment.getExternalStorageDirectory().getAbsolutePath();
+        String certPath = dir + "/self_cert.pem";
+        String keyPath = dir + "/self_cert.key";
+
+        File certFile = new File(certPath);
+        File keyFile = new File(keyPath);
+        if(!certFile.exists() || !keyFile.exists()) {
+            Gotun2socks.generateCerts(certPath, keyPath);
+        }
+        Gotun2socks.loadAndSetCa(certPath, keyPath);
+
         initMatcher();
         Intent i = VpnService.prepare(this);
         if (i != null) {
@@ -116,6 +137,23 @@ public class MainActivity extends Activity {
         } else {
             onActivityResult(REQUEST_CODE_START_VPN, Activity.RESULT_OK, null);
         }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        checkPermissions();
+    }
+
+    @TargetApi(Build.VERSION_CODES.M)
+    private boolean checkPermissions() {
+        if(Build.VERSION.SDK_INT > Build.VERSION_CODES.M) {
+            if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, 1);
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override

@@ -63,7 +63,7 @@ func convertIp(ip string) string {
 			i[6], i[7], i[4], i[5],
 			i[2], i[3], i[0], i[1])
 
-	} else {
+	} else if len(ip) > 7 {
 		i := []uint16{hexToDec(ip[6:8]),
 			hexToDec(ip[4:6]),
 			hexToDec(ip[2:4]),
@@ -88,6 +88,10 @@ func removeEmpty(array []string) []string {
 func (t2s *Tun2Socks) FindAppUid(sourceIp string, sourcePort uint16, destIp string, destPort uint16) int {
 	if t2s.uidCallback != nil {
 		return t2s.uidCallback.GetUid(sourceIp, sourcePort, destIp, destPort)
+	}
+
+	if len(destIp) == 0 || len(sourceIp) == 0 {
+		return -1
 	}
 
 	lines := getTcpData()

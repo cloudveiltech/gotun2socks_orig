@@ -9,11 +9,11 @@ import (
 
 	"github.com/pmezard/adblock/adblock"
 
-	"github.com/dkwiebe/gotun2socks/internal/flashtext"
+	goahocorasick "github.com/anknown/ahocorasick"
 )
 
 const MAX_RULES_PER_MATCHER = 1000
-const MAX_CONTENT_SIZE_SCAN = 500 * 1024 //500kb max to scan
+const MAX_CONTENT_SIZE_SCAN = 1000 * 1024 //500kb max to scan
 var adblockMatcher *AdBlockMatcher
 
 var defaultBlockPageContent = "%url% is blocked. Category %category%. Reason %reason%"
@@ -26,7 +26,7 @@ type MatcherCategory struct {
 type PhraseCategory struct {
 	Category  string
 	Phrases   []string
-	processor *flashtext.KeywordProcessor
+	processor *goahocorasick.Machine
 }
 
 type AdBlockMatcher struct {
@@ -130,10 +130,11 @@ func (am *AdBlockMatcher) IsContentSmallEnoughToFilter(contentSize int64) bool {
 }
 
 func (am *AdBlockMatcher) TestContainsForbiddenPhrases(str []byte) *string {
-	stripped := string(str)
+	text := []rune(strings.ToLower(string(str)))
 
 	for _, phraseCategory := range am.PhraseCategories {
-		if phraseCategory.processor.TestHaveKeywords(stripped) {
+		res := phraseCategory.processor.MultiPatternSearch(text, true)
+		if len(res) > 0 {
 			return &phraseCategory.Category
 		}
 	}
@@ -164,10 +165,13 @@ func (am *AdBlockMatcher) AddBlockedPhrase(phrase string, category string) {
 func (am *AdBlockMatcher) Build() {
 	am.phrasesCount = 0
 	for _, phraseCategory := range am.PhraseCategories {
-		processor := flashtext.NewKeywordProcessor()
+		processor := new(goahocorasick.Machine)
 
-		processor.SetCaseSenstive(false)
-		processor.AddKeywords(phraseCategory.Phrases)
+		dict := [][]rune{}
+		for _, phrase := range phraseCategory.Phrases {
+			dict = append(dict, []rune(strings.ToLower(phrase)))
+		}
+		processor.Build(dict)
 		phraseCategory.processor = processor
 
 		am.phrasesCount += len(phraseCategory.Phrases)
