@@ -5,7 +5,6 @@ import (
 	"bufio"
 	"io/ioutil"
 	"log"
-	"runtime"
 	"strings"
 
 	"github.com/pmezard/adblock/adblock"
@@ -74,7 +73,6 @@ func (am *AdBlockMatcher) ParseZipRulesFile(file *zip.File) {
 		}
 	}
 
-	runtime.GC()
 }
 
 func (am *AdBlockMatcher) addBlockPageFromZipFile(file *zip.File) {

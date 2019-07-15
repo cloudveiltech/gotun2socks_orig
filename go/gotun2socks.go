@@ -150,6 +150,7 @@ func Stop() {
 func Prof() {
 	//pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
 	runtime.GC()
+	debug.FreeOSMemory()
 }
 
 func customDNSDialer(ctx context.Context, network, address string) (net.Conn, error) {

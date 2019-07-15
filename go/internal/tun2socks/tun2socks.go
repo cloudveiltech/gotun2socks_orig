@@ -1,10 +1,12 @@
 package tun2socks
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"runtime"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -13,7 +15,7 @@ import (
 )
 
 const (
-	MTU = 15000
+	MTU = 10240
 
 	PROXY_TYPE_NONE  = 0
 	PROXY_TYPE_SOCKS = 1
@@ -151,13 +153,16 @@ func (t2s *Tun2Socks) Run() {
 	go func() {
 		t2s.wg.Add(1)
 		defer t2s.wg.Done()
+
+		buf := newBuffer()
 		for {
 			select {
 			case pkt := <-t2s.writeCh:
 				switch pkt.(type) {
 				case *tcpPacket:
 					tcp := pkt.(*tcpPacket)
-					t2s.dev.Write(tcp.wire)
+					wireStart := tcp.packTcpIntoBuff(buf)
+					t2s.dev.Write(buf[wireStart:])
 					releaseTCPPacket(tcp)
 				case *udpPacket:
 					udp := pkt.(*udpPacket)
@@ -188,7 +193,9 @@ func (t2s *Tun2Socks) Run() {
 				break
 			}
 
-			time.Sleep(5000 * time.Millisecond)
+			time.Sleep(15000 * time.Millisecond)
+
+			debug.FreeOSMemory()
 			log.Printf("Conn size tcp %d udp %d, routines %d", len(t2s.tcpConnTrackMap), len(t2s.udpConnTrackMap), runtime.NumGoroutine())
 		}
 		log.Printf("Worker exit")
@@ -253,4 +260,17 @@ func (t2s *Tun2Socks) Run() {
 			log.Printf("Unsupported packet: protocol %d", ip.Protocol)
 		}
 	}
+}
+
+func byteCountBinary(b uint64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
 }

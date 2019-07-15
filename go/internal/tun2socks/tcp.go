@@ -199,24 +199,30 @@ func packTCP(ip *packet.IPv4, tcp *packet.TCP) *tcpPacket {
 	pkt.ip = ip
 	pkt.tcp = tcp
 
-	buf := newBuffer()
-	pkt.mtuBuf = buf
+	pkt.mtuBuf = nil
+	return pkt
+}
+
+func (pkt *tcpPacket) packTcpIntoBuff(buf []byte) int {
+	pkt.mtuBuf = nil
+
+	ip := pkt.ip
+	tcp := pkt.tcp
 
 	payloadL := len(tcp.Payload)
 	payloadStart := MTU - payloadL
 	if payloadL != 0 {
-		copy(pkt.mtuBuf[payloadStart:], tcp.Payload)
+		copy(buf[payloadStart:], tcp.Payload)
 	}
 	tcpHL := tcp.HeaderLength()
 	tcpStart := payloadStart - tcpHL
 	pseduoStart := tcpStart - packet.IPv4_PSEUDO_LENGTH
-	ip.PseudoHeader(pkt.mtuBuf[pseduoStart:tcpStart], packet.IPProtocolTCP, tcpHL+payloadL)
-	tcp.Serialize(pkt.mtuBuf[tcpStart:payloadStart], pkt.mtuBuf[pseduoStart:])
+	ip.PseudoHeader(buf[pseduoStart:tcpStart], packet.IPProtocolTCP, tcpHL+payloadL)
+	tcp.Serialize(buf[tcpStart:payloadStart], buf[pseduoStart:])
 	ipHL := ip.HeaderLength()
 	ipStart := tcpStart - ipHL
-	ip.Serialize(pkt.mtuBuf[ipStart:tcpStart], tcpHL+payloadL)
-	pkt.wire = pkt.mtuBuf[ipStart:]
-	return pkt
+	ip.Serialize(buf[ipStart:tcpStart], tcpHL+payloadL)
+	return ipStart
 }
 
 func rst(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, seq uint32, ack uint32, payloadLen uint32) *tcpPacket {
@@ -563,7 +569,6 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 				if tt.proxyServer.ProxyType == PROXY_TYPE_HTTP {
 					if tt.connectState != CONNECT_ESTABLISHED {
 						tt.recvWndCond.L.Lock()
-						log.Print("Waiting https connect")
 						tt.recvWndCond.Wait()
 						tt.recvWndCond.L.Unlock()
 					}
@@ -914,11 +919,9 @@ func (tt *tcpConnTrack) run() {
 		case data := <-fromSocksCh:
 			tt.lastPacketTime = time.Now()
 			tt.payload(data)
-
 		case <-socksCloseCh:
 			tt.finAck()
 			tt.changeState(FIN_WAIT_1)
-
 		case <-timeout.C:
 			if tt.socksConn != nil {
 				tt.socksConn.Close()

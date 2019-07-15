@@ -16,7 +16,7 @@ import (
 	"github.com/cloudveiltech/goproxy"
 )
 
-import _ "net/http/pprof"
+//import _ "net/http/pprof"
 
 var (
 	proxy  *goproxy.ProxyHttpServer
@@ -130,10 +130,9 @@ func startHttpServer() *http.Server {
 	srv := &http.Server{Addr: fmt.Sprintf(":%d", 23500)}
 	srv.Handler = proxy
 
-	go func() {
-		log.Println(http.ListenAndServe(":6060", nil))
-	}()
-
+	// go func() {
+	// 	http.ListenAndServe(":6060", nil)
+	// }()
 	go func() {
 		if err := srv.ListenAndServe(); err != nil {
 			// cannot panic, because this probably is an intentional close
@@ -184,7 +183,6 @@ func startGoProxyServer(certPath, certKeyPath string) {
 			if !adblockMatcher.TestContentTypeIsFiltrable(resp.Header.Get("Content-Type")) {
 				return resp
 			}
-
 			buf := new(bytes.Buffer)
 			buf.ReadFrom(resp.Body)
 

@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"log"
 	"os"
+	"runtime/debug"
 	"strings"
 
 	"github.com/pmezard/adblock/adblock"
@@ -179,6 +180,8 @@ func (am *AdBlockMatcher) Build() {
 
 	matchers := am.MatcherCategories[len(am.MatcherCategories)-1].Matchers
 	am.lastMatcher = matchers[len(matchers)-1]
+
+	debug.FreeOSMemory()
 }
 
 func (am *AdBlockMatcher) RulesCount() int {
