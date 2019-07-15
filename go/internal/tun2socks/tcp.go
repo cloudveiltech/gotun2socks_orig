@@ -604,12 +604,12 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 	}()
 
 	// reader
+
+	var buf [MTU - 40]byte
 	for {
 		if tt.t2s.stopped || tt.destroyed {
 			break
 		}
-
-		var buf [MTU - 40]byte
 
 		// tt.sendWndCond.L.Lock()
 		var wnd int32
