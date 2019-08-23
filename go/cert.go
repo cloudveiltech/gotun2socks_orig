@@ -98,7 +98,7 @@ func GenerateCerts(caCertPath, caKeyPath string) bool {
 	template := x509.Certificate{
 		SerialNumber: big.NewInt(1),
 		Subject: pkix.Name{
-			Organization: []string{"Locker Self Signed"},
+			Organization: []string{"Locker Filtering Certificate"},
 		},
 		NotBefore: time.Now(),
 		NotAfter:  time.Now().Add(time.Hour * 24 * 3650),
