@@ -7,7 +7,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/pmezard/adblock/adblock"
+	"github.com/patriciy/adblock/adblock"
 )
 
 func (am *AdBlockMatcher) ParseRulesZipArchive(filePath string) {
@@ -36,6 +36,17 @@ func (am *AdBlockMatcher) AddRule(rule string, category string, bypass bool) {
 
 	if am.RulesCnt%MAX_RULES_PER_MATCHER == 0 {
 		am.addMatcher(category, bypass)
+	}
+
+	//Check if it's just a domain rule
+	if len(r.Parts) == 2 {
+		if r.Parts[0].Type == adblock.DomainAnchor {
+			if r.Parts[1].Type == adblock.Exact {
+				am.lastCategory.BlockedDomains[string(r.Parts[1].Value)] = true
+				am.RulesCnt = am.RulesCnt + 1
+				return
+			}
+		}
 	}
 
 	am.lastMatcher.AddRule(r, am.RulesCnt)

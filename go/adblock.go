@@ -8,9 +8,14 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/pmezard/adblock/adblock"
+	"github.com/patriciy/adblock/adblock"
 
 	goahocorasick "github.com/anknown/ahocorasick"
+)
+
+const (
+	Included = adblock.Included
+	Excluded = adblock.Excluded
 )
 
 const MAX_RULES_PER_MATCHER = 1000
@@ -20,8 +25,9 @@ var adblockMatcher *AdBlockMatcher
 var defaultBlockPageContent = "%url% is blocked. Category %category%. Reason %reason%"
 
 type MatcherCategory struct {
-	Category string
-	Matchers []*adblock.RuleMatcher
+	Category       string
+	Matchers       []*adblock.RuleMatcher
+	BlockedDomains map[string]bool
 }
 
 type PhraseCategory struct {
@@ -35,6 +41,7 @@ type AdBlockMatcher struct {
 	BypassMatcherCategories []*MatcherCategory
 	PhraseCategories        []*PhraseCategory
 	lastMatcher             *adblock.RuleMatcher
+	lastCategory            *MatcherCategory
 	RulesCnt                int
 	phrasesCount            int
 	bypassEnabled           bool
@@ -62,7 +69,8 @@ func (am *AdBlockMatcher) addMatcher(category string, bypass bool) {
 
 	if categoryMatcher == nil {
 		categoryMatcher = &MatcherCategory{
-			Category: category,
+			Category:       category,
+			BlockedDomains: make(map[string]bool),
 		}
 
 		if bypass {
@@ -74,6 +82,7 @@ func (am *AdBlockMatcher) addMatcher(category string, bypass bool) {
 
 	categoryMatcher.Matchers = append(categoryMatcher.Matchers, matcher)
 	adblockMatcher.lastMatcher = matcher
+	adblockMatcher.lastCategory = categoryMatcher
 }
 
 func (am *AdBlockMatcher) GetBlockPage(url string, category string, reason string) string {
@@ -83,39 +92,62 @@ func (am *AdBlockMatcher) GetBlockPage(url string, category string, reason strin
 	return tagsReplacer.Replace(am.BlockPageContent)
 }
 
-func (am *AdBlockMatcher) TestUrlBlocked(url string, host string) *string {
-	res := am.matchRulesCategories(am.MatcherCategories, url, host)
-	if res != nil {
-		return res
+func (am *AdBlockMatcher) TestUrlBlocked(url string, host string, referer string) (*string, int) {
+	res1, res2 := am.matchRulesCategories(am.MatcherCategories, url, host, referer)
+	if res1 != nil {
+		return res1, res2
 	}
 
 	if am.bypassEnabled {
-		return nil
+		return nil, Included
 	}
 
-	return am.matchRulesCategories(am.BypassMatcherCategories, url, host)
+	return am.matchRulesCategories(am.BypassMatcherCategories, url, host, referer)
 }
 
-func (am *AdBlockMatcher) matchRulesCategories(matcherCategories []*MatcherCategory, url string, host string) *string {
+func (am *AdBlockMatcher) matchRulesCategories(matcherCategories []*MatcherCategory, url string, host string, referer string) (*string, int) {
 	rq := &adblock.Request{
-		URL:    url,
-		Domain: host,
+		URL:     url,
+		Domain:  host,
+		Referer: referer,
 	}
 
+	domainParts := strings.Split(host, ".")
 	for _, matcherCategory := range matcherCategories {
 		for _, matcher := range matcherCategory.Matchers {
-			matched, _, err := matcher.Match(rq)
+			matched, matchType, err := matcher.Match(rq)
 			if err != nil {
 				log.Printf("Error matching rule %s", err)
 			}
 
 			if matched {
-				return &matcherCategory.Category
+				return &matcherCategory.Category, matchType
 			}
+		}
+
+		if matchDomain(domainParts, matcherCategory) {
+			return &matcherCategory.Category, Included
 		}
 	}
 
-	return nil
+	return nil, Included
+}
+
+func matchDomain(domainParts []string, matcherCatergory *MatcherCategory) bool {
+	partsLen := len(domainParts)
+	if partsLen < 2 {
+		log.Printf("Domain too short")
+		return false
+	}
+	domainName := domainParts[partsLen-1]
+	for i := len(domainParts) - 2; i >= 0; i-- {
+		domainName = domainParts[i] + "." + domainName
+		_, ok := matcherCatergory.BlockedDomains[domainName]
+		if ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (am *AdBlockMatcher) TestContentTypeIsFiltrable(contentType string) bool {
@@ -125,8 +157,6 @@ func (am *AdBlockMatcher) TestContentTypeIsFiltrable(contentType string) bool {
 }
 
 func (am *AdBlockMatcher) IsContentSmallEnoughToFilter(contentSize int64) bool {
-	log.Printf("Content Size testing is %d, maxSize is %d", contentSize, MAX_CONTENT_SIZE_SCAN)
-
 	return contentSize > 0 && contentSize < MAX_CONTENT_SIZE_SCAN
 }
 

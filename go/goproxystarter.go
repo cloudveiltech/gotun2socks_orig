@@ -161,8 +161,8 @@ func startGoProxyServer(certPath, certKeyPath string) {
 
 	proxy.OnRequest().DoFunc(
 		func(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
-			category := adblockMatcher.TestUrlBlocked(r.URL.String(), r.Host)
-			if category != nil {
+			category, matchType := adblockMatcher.TestUrlBlocked(r.URL.String(), r.Host, r.Referer())
+			if category != nil && matchType == Included {
 				return r, goproxy.NewResponse(r,
 					goproxy.ContentTypeHtml, http.StatusForbidden,
 					adblockMatcher.GetBlockPage(r.URL.String(), *category, "Blocked by server policy"))
