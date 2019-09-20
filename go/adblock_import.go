@@ -42,7 +42,7 @@ func (am *AdBlockMatcher) AddRule(rule string, category string, bypass bool) {
 	if len(r.Parts) == 2 {
 		if r.Parts[0].Type == adblock.DomainAnchor {
 			if r.Parts[1].Type == adblock.Exact {
-				am.lastCategory.BlockedDomains[string(r.Parts[1].Value)] = true
+				am.lastCategory.BlockedDomains[string(r.Parts[1].Value)] = !r.Exception
 				am.RulesCnt = am.RulesCnt + 1
 				return
 			}
