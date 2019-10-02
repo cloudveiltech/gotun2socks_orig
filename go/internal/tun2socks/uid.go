@@ -34,7 +34,7 @@ func hexToDec(h string) uint16 {
 }
 
 func convertIp(ip string) string {
-	// Convert the ipv4 to decimal. Have to rearrange the ip because the
+	// Convert the ip to decimal. Have to rearrange the ip because the
 	// default value is in little Endian order.
 
 	var out string

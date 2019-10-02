@@ -182,7 +182,7 @@ func (t2s *Tun2Socks) Run() {
 
 	// reader
 	var buf [MTU]byte
-	var ip packet.IPv4
+	var ip packet.Ip
 	var tcp packet.TCP
 	var udp packet.UDP
 
@@ -222,23 +222,25 @@ func (t2s *Tun2Socks) Run() {
 		}
 
 		data := buf[:n]
-		e = packet.ParseIPv4(data, &ip)
+		e = packet.ParseIp(data, &ip)
 		if e != nil {
-			log.Printf("error to parse IPv4: %s", e)
+			log.Printf("error to parse Ip: %s", e)
 			continue
 		}
 
-		if ip.Flags&0x1 != 0 || ip.FragOffset != 0 {
-			last, pkt, raw := procFragment(&ip, data)
-			if last {
-				ip = *pkt
-				data = raw
-			} else {
-				continue
+		if ip.Version == 4 {
+			if ip.V4.Flags&0x1 != 0 || ip.V4.FragOffset != 0 {
+				last, pkt, raw := procFragment(&ip, data)
+				if last {
+					ip = *pkt
+					data = raw
+				} else {
+					continue
+				}
 			}
 		}
 
-		switch ip.Protocol {
+		switch ip.GetNextProto() {
 		case packet.IPProtocolTCP:
 			e = packet.ParseTCP(ip.Payload, &tcp)
 			if e != nil {
@@ -257,7 +259,7 @@ func (t2s *Tun2Socks) Run() {
 
 		default:
 			// Unsupported packets
-			log.Printf("Unsupported packet: protocol %d", ip.Protocol)
+			log.Printf("Unsupported packet: protocol %d", ip.GetNextProto())
 		}
 	}
 }

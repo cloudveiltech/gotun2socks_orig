@@ -14,7 +14,7 @@ import (
 )
 
 type tcpPacket struct {
-	ip     *packet.IPv4
+	ip     *packet.Ip
 	tcp    *packet.TCP
 	mtuBuf []byte
 	wire   []byte
@@ -151,7 +151,7 @@ func newTCPPacket() *tcpPacket {
 }
 
 func releaseTCPPacket(pkt *tcpPacket) {
-	packet.ReleaseIPv4(pkt.ip)
+	packet.ReleaseIP(pkt.ip)
 	packet.ReleaseTCP(pkt.tcp)
 	if pkt.mtuBuf != nil {
 		releaseBuffer(pkt.mtuBuf)
@@ -161,8 +161,8 @@ func releaseTCPPacket(pkt *tcpPacket) {
 	tcpPacketPool.Put(pkt)
 }
 
-func copyTCPPacket(raw []byte, ip *packet.IPv4, tcp *packet.TCP) *tcpPacket {
-	iphdr := packet.NewIPv4()
+func copyTCPPacket(raw []byte, ip *packet.Ip, tcp *packet.TCP) *tcpPacket {
+	iphdr := packet.NewIP()
 	tcphdr := packet.NewTCP()
 	pkt := newTCPPacket()
 
@@ -176,7 +176,7 @@ func copyTCPPacket(raw []byte, ip *packet.IPv4, tcp *packet.TCP) *tcpPacket {
 	}
 	n := copy(buf, raw)
 	pkt.wire = buf[:n]
-	packet.ParseIPv4(pkt.wire, iphdr)
+	packet.ParseIp(pkt.wire, iphdr)
 	packet.ParseTCP(iphdr.Payload, tcphdr)
 	pkt.ip = iphdr
 	pkt.tcp = tcphdr
@@ -184,17 +184,17 @@ func copyTCPPacket(raw []byte, ip *packet.IPv4, tcp *packet.TCP) *tcpPacket {
 	return pkt
 }
 
-func tcpConnID(ip *packet.IPv4, tcp *packet.TCP) string {
+func tcpConnID(ip *packet.Ip, tcp *packet.TCP) string {
 	//	uid := FindAppUid(ip.SrcIP.String(), tcp.SrcPort, ip.DstIP.String(), tcp.DstPort)
 	return strings.Join([]string{
-		ip.SrcIP.String(),
+		ip.Src.String(),
 		fmt.Sprintf("%d", tcp.SrcPort),
-		ip.DstIP.String(),
+		ip.Dst.String(),
 		fmt.Sprintf("%d", tcp.DstPort),
 	}, "|")
 }
 
-func packTCP(ip *packet.IPv4, tcp *packet.TCP) *tcpPacket {
+func packTCP(ip *packet.Ip, tcp *packet.TCP) *tcpPacket {
 	pkt := newTCPPacket()
 	pkt.ip = ip
 	pkt.tcp = tcp
@@ -216,7 +216,7 @@ func (pkt *tcpPacket) packTcpIntoBuff(buf []byte) int {
 	}
 	tcpHL := tcp.HeaderLength()
 	tcpStart := payloadStart - tcpHL
-	pseduoStart := tcpStart - packet.IPv4_PSEUDO_LENGTH
+	pseduoStart := tcpStart - packet.IP_PSEUDO_LENGTH
 	ip.PseudoHeader(buf[pseduoStart:tcpStart], packet.IPProtocolTCP, tcpHL+payloadL)
 	tcp.Serialize(buf[tcpStart:payloadStart], buf[pseduoStart:])
 	ipHL := ip.HeaderLength()
@@ -226,15 +226,21 @@ func (pkt *tcpPacket) packTcpIntoBuff(buf []byte) int {
 }
 
 func rst(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, seq uint32, ack uint32, payloadLen uint32) *tcpPacket {
-	iphdr := packet.NewIPv4()
 	tcphdr := packet.NewTCP()
 
-	iphdr.Version = 4
-	iphdr.Id = packet.IPID()
-	iphdr.DstIP = srcIP
-	iphdr.SrcIP = dstIP
-	iphdr.TTL = 64
-	iphdr.Protocol = packet.IPProtocolTCP
+	var iphdr *packet.Ip
+	if srcIP.To4() != nil {
+		iphdr = packet.NewIP4()
+		iphdr.V4.Id = packet.IPID()
+	} else {
+		iphdr = packet.NewIP6()
+	}
+
+	iphdr.SetHopLimit(64)
+	iphdr.SetNextProto(packet.IPProtocolTCP)
+
+	iphdr.Dst = srcIP
+	iphdr.Src = dstIP
 
 	tcphdr.DstPort = srcPort
 	tcphdr.SrcPort = dstPort
@@ -260,7 +266,7 @@ func rst(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, seq uint32,
 }
 
 func rstByPacket(pkt *tcpPacket) *tcpPacket {
-	return rst(pkt.ip.SrcIP, pkt.ip.DstIP, pkt.tcp.SrcPort, pkt.tcp.DstPort, pkt.tcp.Seq, pkt.tcp.Ack, uint32(len(pkt.tcp.Payload)))
+	return rst(pkt.ip.Src, pkt.ip.Dst, pkt.tcp.SrcPort, pkt.tcp.DstPort, pkt.tcp.Seq, pkt.tcp.Ack, uint32(len(pkt.tcp.Payload)))
 }
 
 func (tt *tcpConnTrack) changeState(nxt tcpState) {
@@ -314,15 +320,21 @@ func (tt *tcpConnTrack) send(pkt *tcpPacket) {
 }
 
 func (tt *tcpConnTrack) synAck(syn *tcpPacket) {
-	iphdr := packet.NewIPv4()
 	tcphdr := packet.NewTCP()
 
-	iphdr.Version = 4
-	iphdr.Id = packet.IPID()
-	iphdr.SrcIP = tt.remoteIP
-	iphdr.DstIP = tt.localIP
-	iphdr.TTL = 64
-	iphdr.Protocol = packet.IPProtocolTCP
+	var iphdr *packet.Ip
+	if tt.remoteIP.To4() != nil {
+		iphdr = packet.NewIP4()
+		iphdr.V4.Id = packet.IPID()
+	} else {
+		iphdr = packet.NewIP6()
+	}
+
+	iphdr.Src = tt.remoteIP
+	iphdr.Dst = tt.localIP
+
+	iphdr.SetHopLimit(64)
+	iphdr.SetNextProto(packet.IPProtocolTCP)
 
 	tcphdr.SrcPort = tt.remotePort
 	tcphdr.DstPort = tt.localPort
@@ -341,15 +353,21 @@ func (tt *tcpConnTrack) synAck(syn *tcpPacket) {
 }
 
 func (tt *tcpConnTrack) finAck() {
-	iphdr := packet.NewIPv4()
 	tcphdr := packet.NewTCP()
 
-	iphdr.Version = 4
-	iphdr.Id = packet.IPID()
-	iphdr.SrcIP = tt.remoteIP
-	iphdr.DstIP = tt.localIP
-	iphdr.TTL = 64
-	iphdr.Protocol = packet.IPProtocolTCP
+	var iphdr *packet.Ip
+	if tt.remoteIP.To4() != nil {
+		iphdr = packet.NewIP4()
+		iphdr.V4.Id = packet.IPID()
+	} else {
+		iphdr = packet.NewIP6()
+	}
+
+	iphdr.Src = tt.remoteIP
+	iphdr.Dst = tt.localIP
+
+	iphdr.SetHopLimit(64)
+	iphdr.SetNextProto(packet.IPProtocolTCP)
 
 	tcphdr.SrcPort = tt.remotePort
 	tcphdr.DstPort = tt.localPort
@@ -366,15 +384,21 @@ func (tt *tcpConnTrack) finAck() {
 }
 
 func (tt *tcpConnTrack) ack() {
-	iphdr := packet.NewIPv4()
 	tcphdr := packet.NewTCP()
 
-	iphdr.Version = 4
-	iphdr.Id = packet.IPID()
-	iphdr.SrcIP = tt.remoteIP
-	iphdr.DstIP = tt.localIP
-	iphdr.TTL = 64
-	iphdr.Protocol = packet.IPProtocolTCP
+	var iphdr *packet.Ip
+	if tt.remoteIP.To4() != nil {
+		iphdr = packet.NewIP4()
+		iphdr.V4.Id = packet.IPID()
+	} else {
+		iphdr = packet.NewIP6()
+	}
+
+	iphdr.Src = tt.remoteIP
+	iphdr.Dst = tt.localIP
+
+	iphdr.SetHopLimit(64)
+	iphdr.SetNextProto(packet.IPProtocolTCP)
 
 	tcphdr.SrcPort = tt.remotePort
 	tcphdr.DstPort = tt.localPort
@@ -388,15 +412,21 @@ func (tt *tcpConnTrack) ack() {
 }
 
 func (tt *tcpConnTrack) payload(data []byte) {
-	iphdr := packet.NewIPv4()
 	tcphdr := packet.NewTCP()
 
-	iphdr.Version = 4
-	iphdr.Id = packet.IPID()
-	iphdr.SrcIP = tt.remoteIP
-	iphdr.DstIP = tt.localIP
-	iphdr.TTL = 64
-	iphdr.Protocol = packet.IPProtocolTCP
+	var iphdr *packet.Ip
+	if tt.remoteIP.To4() != nil {
+		iphdr = packet.NewIP4()
+		iphdr.V4.Id = packet.IPID()
+	} else {
+		iphdr = packet.NewIP6()
+	}
+
+	iphdr.Src = tt.remoteIP
+	iphdr.Dst = tt.localIP
+
+	iphdr.SetHopLimit(64)
+	iphdr.SetNextProto(packet.IPProtocolTCP)
 
 	tcphdr.SrcPort = tt.remotePort
 	tcphdr.DstPort = tt.localPort
@@ -944,7 +974,7 @@ func (tt *tcpConnTrack) run() {
 	}
 }
 
-func (t2s *Tun2Socks) createTCPConnTrack(id string, ip *packet.IPv4, tcp *packet.TCP) *tcpConnTrack {
+func (t2s *Tun2Socks) createTCPConnTrack(id string, ip *packet.Ip, tcp *packet.TCP) *tcpConnTrack {
 	t2s.tcpConnTrackLock.Lock()
 	defer t2s.tcpConnTrackLock.Unlock()
 
@@ -972,14 +1002,14 @@ func (t2s *Tun2Socks) createTCPConnTrack(id string, ip *packet.IPv4, tcp *packet
 		remotePort: tcp.DstPort,
 		state:      CLOSED,
 
-		uid:         t2s.FindAppUid(ip.SrcIP.String(), tcp.SrcPort, ip.DstIP.String(), tcp.DstPort),
+		uid:         t2s.FindAppUid(ip.Src.String(), tcp.SrcPort, ip.Dst.String(), tcp.DstPort),
 		proxyServer: t2s.defaultProxyServer,
 	}
 
-	track.localIP = make(net.IP, len(ip.SrcIP))
-	copy(track.localIP, ip.SrcIP)
-	track.remoteIP = make(net.IP, len(ip.DstIP))
-	copy(track.remoteIP, ip.DstIP)
+	track.localIP = make(net.IP, len(ip.Src))
+	copy(track.localIP, ip.Src)
+	track.remoteIP = make(net.IP, len(ip.Dst))
+	copy(track.remoteIP, ip.Dst)
 
 	track.loadProxyConfig()
 
@@ -1009,7 +1039,7 @@ func (t2s *Tun2Socks) clearTCPConnTrack(id string) {
 	delete(t2s.tcpConnTrackMap, id)
 }
 
-func (t2s *Tun2Socks) tcp(raw []byte, ip *packet.IPv4, tcp *packet.TCP) {
+func (t2s *Tun2Socks) tcp(raw []byte, ip *packet.Ip, tcp *packet.TCP) {
 	connID := tcpConnID(ip, tcp)
 
 	track := t2s.getTCPConnTrack(connID)
@@ -1030,7 +1060,7 @@ func (t2s *Tun2Socks) tcp(raw []byte, ip *packet.IPv4, tcp *packet.TCP) {
 		// return a RST to non-SYN packet
 		if !tcp.SYN {
 			// log.Printf("--> [TCP][%s][%s]", connID, tcpflagsString(tcp))
-			resp := rst(ip.SrcIP, ip.DstIP, tcp.SrcPort, tcp.DstPort, tcp.Seq, tcp.Ack, uint32(len(tcp.Payload)))
+			resp := rst(ip.Src, ip.Dst, tcp.SrcPort, tcp.DstPort, tcp.Seq, tcp.Ack, uint32(len(tcp.Payload)))
 			t2s.writeCh <- resp
 			// log.Printf("<-- [TCP][%s][RST]", connID)
 			return
