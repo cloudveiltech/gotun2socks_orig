@@ -96,7 +96,10 @@ func SetUidCallback(javaCallback JavaUidCallback) {
 
 func SetDnsServer(server string) {
 	dnsServer = server
-	if !strings.Contains(server, ":") {
+
+	if strings.Count(server, ":") > 1 { //possible ipv6
+		dnsServer = "[" + server + "]:53"
+	} else if !strings.Contains(server, ":") {
 		dnsServer = server + ":53"
 	}
 }
@@ -154,6 +157,9 @@ func Prof() {
 }
 
 func customDNSDialer(ctx context.Context, network, address string) (net.Conn, error) {
-	//log.Printf("custom dns dialer is called")
-	return customDialer.DialContext(ctx, "udp", dnsServer)
+	conn, e := customDialer.DialContext(ctx, "udp", dnsServer)
+	if e != nil {
+		log.Printf("Error dns dial err %s", e)
+	}
+	return conn, e
 }

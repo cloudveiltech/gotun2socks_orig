@@ -64,7 +64,9 @@ type Tun2Socks struct {
 	defaultProxyServer *ProxyServer
 	uidCallback        UidCallback
 
-	tcpConnTrackLock sync.Mutex
+	tcpConnTrackLock      sync.Mutex
+	ipConnTrackMap        map[string]*ipDirectConnTrack
+	ipDirectConnTrackLock sync.Mutex
 
 	udpConnTrackLock sync.Mutex
 	udpConnTrackMap  map[string]*udpConnTrack
@@ -99,6 +101,7 @@ func New(dev io.ReadWriteCloser, enableDnsCache bool) *Tun2Socks {
 		writeCh:            make(chan interface{}, 10000),
 		tcpConnTrackMap:    make(map[string]*tcpConnTrack),
 		udpConnTrackMap:    make(map[string]*udpConnTrack),
+		ipConnTrackMap:     make(map[string]*ipDirectConnTrack),
 		proxyServerMap:     make(map[int]*ProxyServer),
 		uidCallback:        nil,
 		defaultProxyServer: nil,
@@ -143,6 +146,13 @@ func (t2s *Tun2Socks) Stop() {
 	for _, udpTrack := range t2s.udpConnTrackMap {
 		close(udpTrack.quitByOther)
 	}
+
+	t2s.ipDirectConnTrackLock.Lock()
+	defer t2s.ipDirectConnTrackLock.Unlock()
+	for _, ipTrack := range t2s.ipConnTrackMap {
+		close(ipTrack.quitByOther)
+	}
+
 	t2s.stopped = true
 	t2s.wg.Wait()
 	log.Print("Stop")
@@ -172,6 +182,8 @@ func (t2s *Tun2Socks) Run() {
 					ip := pkt.(*ipPacket)
 					t2s.dev.Write(ip.wire)
 					releaseIPPacket(ip)
+				case []byte:
+					t2s.dev.Write(pkt.([]byte))
 				}
 			case <-t2s.writerStopCh:
 				log.Printf("quit tun2socks writer")
@@ -240,6 +252,9 @@ func (t2s *Tun2Socks) Run() {
 			}
 		}
 
+		if ip.Version == 6 { //debug v6
+			log.Printf("ip version %d --- GetNextProto: %d", ip.Version, ip.GetNextProto())
+		}
 		switch ip.GetNextProto() {
 		case packet.IPProtocolTCP:
 			e = packet.ParseTCP(ip.Payload, &tcp)
@@ -256,10 +271,18 @@ func (t2s *Tun2Socks) Run() {
 				continue
 			}
 			t2s.udp(data, &ip, &udp)
-
+		/* raw sockets not supported so we can't proxy icmp
+		case packet.IPProtocolICMPv4, packet.IPProtocolICMPv6, packet.IPProtocolIPv6Fragment:
+			log.Printf("Trapanrent connection for icmp packets")
+			ipPacket := &ipPacket{
+				ip:   &ip,
+				wire: data,
+			}
+			t2s.ipDirect(ipPacket)*/
 		default:
 			// Unsupported packets
-			log.Printf("Unsupported packet: protocol %d", ip.GetNextProto())
+			log.Printf("Unsupported packet protocol %d", ip.GetNextProto())
+
 		}
 	}
 }

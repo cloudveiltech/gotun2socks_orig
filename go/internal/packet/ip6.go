@@ -7,11 +7,11 @@ import (
 )
 
 type IPv6 struct {
-	TrafficClass uint8      // traffic class
-	FlowLabel    uint32     // flow label
-	PayloadLen   uint16     // payload length
-	NextHeader   IPProtocol // next header
-	HopLimit     uint8      // hop limit
+	TrafficClass uint8
+	FlowLabel    uint32
+	PayloadLen   uint16
+	NextHeader   IPProtocol
+	HopLimit     uint8
 }
 
 var (
@@ -47,6 +47,8 @@ func parseIPv6(pkt []byte, ip *Ip) error {
 
 	ip.Src = pkt[8:24]
 	ip.Dst = pkt[24:40]
+
+	ip.Payload = pkt[40:]
 
 	return nil
 }
