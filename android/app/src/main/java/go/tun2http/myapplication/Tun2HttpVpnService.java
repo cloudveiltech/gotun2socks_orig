@@ -1,8 +1,11 @@
 package go.tun2http.myapplication;
 
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.net.ConnectivityManager;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.Environment;
@@ -20,9 +23,11 @@ public class Tun2HttpVpnService extends VpnService {
     private static final int PROXY_TYPE_HTTP = 2;
     private static final String ACTION_START = "start";
     private static final String ACTION_STOP = "stop";
+    private static final String ACTION_RESTART_IF_RUNNING = "restart_if_running";
     private static final String EXTRA_APP_PACKAGE_NAME = "app_package_name";
 
     private ParcelFileDescriptor parcelFileDescriptor = null;
+    private ConnectivityChangeReceiver connectivityChangeReceiver;
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -35,6 +40,9 @@ public class Tun2HttpVpnService extends VpnService {
     }
 
     private void start() {
+        if(connectivityChangeReceiver == null) {
+            connectivityChangeReceiver = new ConnectivityChangeReceiver((ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE));
+        }
         if (parcelFileDescriptor == null) {
             setupProxyServers();
             Builder builder = setupBuilder();
@@ -43,9 +51,16 @@ public class Tun2HttpVpnService extends VpnService {
             String dir = Environment.getExternalStorageDirectory().getAbsolutePath();
             Gotun2socks.run(parcelFileDescriptor.getFd(), MAX_CPUS, true, dir + "/self_cert.pem", dir + "/self_cert.key");
         }
+
+        this.registerReceiver(connectivityChangeReceiver, new IntentFilter(android.net.ConnectivityManager.CONNECTIVITY_ACTION));
     }
 
-    private void stop() {
+    private void stop(boolean removeNotification) {
+        try {
+            this.unregisterReceiver(connectivityChangeReceiver);
+        } catch(Exception e) {
+
+        }
         try {
             if (parcelFileDescriptor != null) {
                 parcelFileDescriptor.close();
@@ -54,7 +69,12 @@ public class Tun2HttpVpnService extends VpnService {
             }
         } catch (Throwable ex) {
         }
-        stopForeground(true);
+        if(removeNotification) {
+            stopForeground(true);
+        }
+    }
+    private void stop() {
+        stop(true);
     }
 
 
@@ -62,7 +82,6 @@ public class Tun2HttpVpnService extends VpnService {
     public void onRevoke() {
         stop();
         parcelFileDescriptor = null;
-
         super.onRevoke();
     }
 
@@ -113,10 +132,19 @@ public class Tun2HttpVpnService extends VpnService {
         }
         if (ACTION_STOP.equals(intent.getAction())) {
             stop();
+        } else if(ACTION_RESTART_IF_RUNNING.equals(intent.getAction())) {
+            restartIfRunning();
         }
         return START_STICKY;
     }
 
+    private void restartIfRunning() {
+        if(parcelFileDescriptor == null) {
+            return;
+        }
+        stop(false);
+        start();
+    }
 
     @Override
     public void onDestroy() {
@@ -136,6 +164,13 @@ public class Tun2HttpVpnService extends VpnService {
     public static void stop(Context context) {
         Intent intent = new Intent(context, Tun2HttpVpnService.class);
         intent.setAction(ACTION_STOP);
+        context.startService(intent);
+    }
+
+
+    public static void restartIfRunning(Context context) {
+        Intent intent = new Intent(context, Tun2HttpVpnService.class);
+        intent.setAction(ACTION_RESTART_IF_RUNNING);
         context.startService(intent);
     }
 }

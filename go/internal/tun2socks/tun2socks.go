@@ -36,10 +36,27 @@ var (
 		Timeout: time.Second,
 	}
 
-	_, ip1, _ = net.ParseCIDR("10.0.0.0/24")
-	_, ip2, _ = net.ParseCIDR("172.16.0.0/20")
-	_, ip3, _ = net.ParseCIDR("192.168.0.0/16")
+	privateIPBlocks []*net.IPNet
 )
+
+func initPrivateIps() {
+	for _, cidr := range []string{
+		"127.0.0.0/8",    // IPv4 loopback
+		"10.0.0.0/8",     // RFC1918
+		"172.16.0.0/12",  // RFC1918
+		"192.168.0.0/16", // RFC1918
+		"::1/128",        // IPv6 loopback
+		"fe80::/10",      // IPv6 link-local
+		"fc00::/7",       // IPv6 unique local addr
+	} {
+		_, block, err := net.ParseCIDR(cidr)
+		if err != nil {
+			log.Printf("Error parsing cidr %s", err)
+			continue
+		}
+		privateIPBlocks = append(privateIPBlocks, block)
+	}
+}
 
 type ProxyServer struct {
 	ProxyType  int
@@ -77,7 +94,15 @@ type Tun2Socks struct {
 }
 
 func isPrivate(ip net.IP) bool {
-	return ip1.Contains(ip) || ip2.Contains(ip) || ip3.Contains(ip)
+	if len(privateIPBlocks) == 0 {
+		initPrivateIps()
+	}
+	for _, block := range privateIPBlocks {
+		if block.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func dialLocalSocks(proxyServer *ProxyServer) (*gosocks.SocksConn, error) {

@@ -448,9 +448,15 @@ func (tt *tcpConnTrack) payload(data []byte) {
 func (tt *tcpConnTrack) stateClosed(syn *tcpPacket) (continu bool, release bool) {
 	var e error
 
+	var remoteIpPort string
+	if tt.remoteIP.To16() != nil {
+		remoteIpPort = fmt.Sprintf("[%s]:%d", tt.remoteIP.String(), tt.remotePort)
+	} else {
+		remoteIpPort = fmt.Sprintf("%s:%d", tt.remoteIP.String(), tt.remotePort)
+	}
+
 	if !isPrivate(tt.remoteIP) && (tt.remotePort == 80 || tt.remotePort == 443) {
 		if tt.uid == -1 {
-			log.Printf("initiating connection, loading uid and proxy")
 			uid := tt.t2s.FindAppUid(tt.localIP.String(), tt.localPort, tt.remoteIP.String(), tt.remotePort)
 			tt.uid = uid
 			tt.loadProxyConfig()
@@ -461,20 +467,17 @@ func (tt *tcpConnTrack) stateClosed(syn *tcpPacket) (continu bool, release bool)
 		} else if tt.proxyServer.ProxyType == PROXY_TYPE_HTTP {
 			tt.socksConn, e = dialTransaprent(tt.proxyServer.IpAddress)
 			if len(syn.tcp.Hostname) > 0 && tt.proxyServer.ProxyType == PROXY_TYPE_HTTP && tt.remotePort == 443 {
-				log.Print("Connect using state closed")
 				tt.callHttpProxyConnect(tt.socksConn, tt.remoteIP, syn.tcp)
 			}
 		} else {
-			remoteIpPort := fmt.Sprintf("%s:%d", tt.remoteIP.String(), tt.remotePort)
 			tt.socksConn, e = dialTransaprent(remoteIpPort)
 		}
 	} else {
-		remoteIpPort := fmt.Sprintf("%s:%d", tt.remoteIP.String(), tt.remotePort)
 		tt.socksConn, e = dialTransaprent(remoteIpPort)
 	}
 
 	if e != nil {
-		log.Printf("fail to connect SOCKS proxy: %s", e)
+		log.Printf("fail to connect proxy: %s", e)
 		return
 	} else {
 		// no timeout
