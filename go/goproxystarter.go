@@ -28,7 +28,7 @@ func initGoProxy() {
 	//redirectStderr(fd)
 
 	proxy = goproxy.NewProxyHttpServer()
-	proxy.Verbose = false
+	proxy.Verbose = true
 
 	proxy.NonproxyHandler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Host == "" {

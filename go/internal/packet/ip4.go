@@ -109,8 +109,8 @@ func parseIPv4(pkt []byte, ip *Ip) error {
 }
 
 func (ip *IPv4) pseudoHeader(buf []byte, proto IPProtocol, dataLen int, genericIp *Ip) error {
-	if len(buf) != IP_PSEUDO_LENGTH {
-		return fmt.Errorf("incorrect buffer size: %d buffer given, %d needed", len(buf), IP_PSEUDO_LENGTH)
+	if len(buf) != IP4_PSEUDO_LENGTH {
+		return fmt.Errorf("incorrect buffer size: %d buffer given, %d needed", len(buf), IP4_PSEUDO_LENGTH)
 	}
 	copy(buf[0:4], genericIp.Src)
 	copy(buf[4:8], genericIp.Dst)

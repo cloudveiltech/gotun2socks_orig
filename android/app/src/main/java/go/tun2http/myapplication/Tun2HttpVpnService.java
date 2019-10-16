@@ -13,6 +13,16 @@ import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.text.TextUtils;
 import android.util.Base64;
+import android.util.Log;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
 
 import gotun2socks.Gotun2socks;
 
@@ -93,13 +103,14 @@ public class Tun2HttpVpnService extends VpnService {
 
         // VPN address
         builder.addAddress("10.0.0.2", 32);
+        builder.addAddress("fc00::1", 7);
         builder.addRoute("0.0.0.0", 0);
         builder.addRoute("0:0:0:0:0:0:0:0", 0);
-
-        /*String dnsServer = "8.8.8.8";
+/*
+        String dnsServer = "2001:4860:4860::8888";
         builder.addDnsServer(dnsServer);
-        Gotun2socks.setDnsServer(dnsServer);*/
-
+        Gotun2socks.setDnsServer(dnsServer);
+*/
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             try {
                 builder.addDisallowedApplication(getPackageName());
@@ -108,7 +119,7 @@ public class Tun2HttpVpnService extends VpnService {
             }
         }
 
-        builder.setMtu(15000);
+        builder.setMtu(10240);
 
         return builder;
     }
@@ -117,7 +128,7 @@ public class Tun2HttpVpnService extends VpnService {
         String header = Base64.encodeToString(("test@test.com" + ":" + "1").getBytes(), Base64.NO_WRAP);
 //        Gotun2socks.setDefaultProxy("45.79.132.164:19752", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
 
-       Gotun2socks.setDefaultProxy("127.0.0.1:23500", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
+       Gotun2socks.setDefaultProxy("[::1]:23500", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
     }
 
     @Override

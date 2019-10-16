@@ -33,7 +33,8 @@ const (
 	IPProtocolUDPLite         IPProtocol = 136
 	IPProtocolMPLSInIP        IPProtocol = 137
 
-	IP_PSEUDO_LENGTH int = 12
+	IP4_PSEUDO_LENGTH int = 12
+	IP6_PSEUDO_LENGTH int = 40
 )
 
 type Ip struct {

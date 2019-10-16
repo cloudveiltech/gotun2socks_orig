@@ -4,7 +4,6 @@ import android.Manifest;
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.ProgressDialog;
-import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -17,11 +16,18 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
 
 import gotun2socks.AdBlockMatcher;
 import gotun2socks.Gotun2socks;
@@ -76,14 +82,14 @@ public class MainActivity extends Activity {
     }
 
     private void enableBypass(View view) {
-        if(adBlockMatcher == null) {
+        if (adBlockMatcher == null) {
             return;
         }
         adBlockMatcher.enableBypass();
     }
 
     private void disableBypass(View view) {
-        if(adBlockMatcher == null) {
+        if (adBlockMatcher == null) {
             return;
         }
 
@@ -115,17 +121,17 @@ public class MainActivity extends Activity {
     }
 
     private void startVpn() {
-        if(!checkPermissions()) {
+        if (!checkPermissions()) {
             return;
         }
 
-        String dir =  Environment.getExternalStorageDirectory().getAbsolutePath();
+        String dir = Environment.getExternalStorageDirectory().getAbsolutePath();
         String certPath = dir + "/self_cert.pem";
         String keyPath = dir + "/self_cert.key";
 
         File certFile = new File(certPath);
         File keyFile = new File(keyPath);
-        if(!certFile.exists() || !keyFile.exists()) {
+        if (!certFile.exists() || !keyFile.exists()) {
             Gotun2socks.generateCerts(certPath, keyPath);
         }
         Gotun2socks.loadAndSetCa(certPath, keyPath);
@@ -147,7 +153,7 @@ public class MainActivity extends Activity {
 
     @TargetApi(Build.VERSION_CODES.M)
     private boolean checkPermissions() {
-        if(Build.VERSION.SDK_INT > Build.VERSION_CODES.M) {
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.M) {
             if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, 1);
                 return false;
@@ -177,6 +183,8 @@ public class MainActivity extends Activity {
             }
         }
     }
+
+
 
     private void initMatcher() {
         if (adBlockMatcher != null) {

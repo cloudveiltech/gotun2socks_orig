@@ -216,7 +216,12 @@ func (pkt *tcpPacket) packTcpIntoBuff(buf []byte) int {
 	}
 	tcpHL := tcp.HeaderLength()
 	tcpStart := payloadStart - tcpHL
-	pseduoStart := tcpStart - packet.IP_PSEUDO_LENGTH
+
+	pseduoStart := tcpStart - packet.IP4_PSEUDO_LENGTH
+	if ip.Version == 6 {
+		pseduoStart = tcpStart - packet.IP6_PSEUDO_LENGTH
+	}
+
 	ip.PseudoHeader(buf[pseduoStart:tcpStart], packet.IPProtocolTCP, tcpHL+payloadL)
 	tcp.Serialize(buf[tcpStart:payloadStart], buf[pseduoStart:])
 	ipHL := ip.HeaderLength()

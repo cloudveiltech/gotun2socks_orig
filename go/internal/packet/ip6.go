@@ -54,14 +54,17 @@ func parseIPv6(pkt []byte, ip *Ip) error {
 }
 
 func (ip *IPv6) pseudoHeader(buf []byte, proto IPProtocol, dataLen int, genericIp *Ip) error {
-	if len(buf) != HeaderLen {
-		return fmt.Errorf("incorrect buffer size: %d buffer given, %d needed", len(buf), HeaderLen)
+	if len(buf) != IP6_PSEUDO_LENGTH {
+		return fmt.Errorf("incorrect buffer size: %d buffer given, %d needed", len(buf), IP6_PSEUDO_LENGTH)
 	}
-	copy(buf[8:24], genericIp.Src)
-	copy(buf[24:40], genericIp.Dst)
-	buf[6] = byte(proto)
-	buf[7] = 0
-	binary.BigEndian.PutUint16(buf[4:], uint16(dataLen))
+	for i := 0; i < len(buf); i++ {
+		buf[i] = 0
+	}
+
+	copy(buf, genericIp.Src.To16())
+	copy(buf[16:], genericIp.Dst.To16())
+	binary.BigEndian.PutUint32(buf[32:], uint32(dataLen))
+	buf[len(buf)-1] = byte(proto)
 	return nil
 }
 
@@ -77,7 +80,7 @@ func (ip *IPv6) serialize(hdr []byte, dataLen int, genericIp *Ip) error {
 	hdr[0] = (genericIp.Version << 4) | (ip.TrafficClass >> 4)
 	hdr[1] = (ip.TrafficClass << 4) | uint8(ip.FlowLabel>>16)
 	binary.BigEndian.PutUint16(hdr[2:], uint16(ip.FlowLabel))
-	binary.BigEndian.PutUint16(hdr[4:], ip.PayloadLen)
+	binary.BigEndian.PutUint16(hdr[4:], uint16(dataLen))
 	hdr[6] = byte(ip.NextHeader)
 	hdr[7] = byte(ip.HopLimit)
 
