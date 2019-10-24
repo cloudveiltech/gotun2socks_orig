@@ -90,18 +90,23 @@ type Tun2Socks struct {
 	stopped          bool
 
 	wg sync.WaitGroup
+
+	customDnsHost net.IP
+	customDnsPort uint16
 }
 
 func isPrivate(ip net.IP) bool {
-	if len(privateIPBlocks) == 0 {
-		initPrivateIps()
-	}
-	for _, block := range privateIPBlocks {
-		if block.Contains(ip) {
-			return true
-		}
-	}
 	return false
+	/*
+		if len(privateIPBlocks) == 0 {
+			initPrivateIps()
+		}
+		for _, block := range privateIPBlocks {
+			if block.Contains(ip) {
+				return true
+			}
+		}
+		return false*/
 }
 
 func dialLocalSocks(proxyServer *ProxyServer) (*gosocks.SocksConn, error) {
@@ -118,7 +123,7 @@ func dialTransaprent(localAddr string) (*gosocks.SocksConn, error) {
 	return directDialer.Dial(localAddr)
 }
 
-func New(dev io.ReadWriteCloser, enableDnsCache bool) *Tun2Socks {
+func New(dev io.ReadWriteCloser, enableDnsCache bool, dnsServerIp net.IP, dnsServerPort uint16) *Tun2Socks {
 	t2s := &Tun2Socks{
 		dev:                dev,
 		writerStopCh:       make(chan bool, 10),
@@ -129,6 +134,8 @@ func New(dev io.ReadWriteCloser, enableDnsCache bool) *Tun2Socks {
 		uidCallback:        nil,
 		defaultProxyServer: nil,
 		stopped:            false,
+		customDnsHost:      dnsServerIp,
+		customDnsPort:      dnsServerPort,
 	}
 	if enableDnsCache {
 		t2s.cache = &dnsCache{

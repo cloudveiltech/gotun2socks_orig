@@ -454,10 +454,10 @@ func (tt *tcpConnTrack) stateClosed(syn *tcpPacket) (continu bool, release bool)
 	var e error
 
 	var remoteIpPort string
-	if tt.remoteIP.To16() != nil {
-		remoteIpPort = fmt.Sprintf("[%s]:%d", tt.remoteIP.String(), tt.remotePort)
-	} else {
+	if tt.remoteIP.To4() != nil {
 		remoteIpPort = fmt.Sprintf("%s:%d", tt.remoteIP.String(), tt.remotePort)
+	} else {
+		remoteIpPort = fmt.Sprintf("[%s]:%d", tt.remoteIP.String(), tt.remotePort)
 	}
 
 	if !isPrivate(tt.remoteIP) && (tt.remotePort == 80 || tt.remotePort == 443) {

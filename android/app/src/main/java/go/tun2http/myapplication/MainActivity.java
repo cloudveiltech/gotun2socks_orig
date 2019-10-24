@@ -6,6 +6,10 @@ import android.app.Activity;
 import android.app.ProgressDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.ConnectivityManager;
+import android.net.LinkProperties;
+import android.net.Network;
+import android.net.NetworkInfo;
 import android.net.Uri;
 import android.net.VpnService;
 import android.os.Build;
@@ -96,6 +100,29 @@ public class MainActivity extends Activity {
         adBlockMatcher.disaleBypass();
     }
 
+    private void printDnsServers() {
+        if(Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+            return;
+        }
+
+        ConnectivityManager connectivityManager = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        if(connectivityManager == null) {
+            return;
+        }
+
+        for (Network network : connectivityManager.getAllNetworks()) {
+            NetworkInfo networkInfo = connectivityManager.getNetworkInfo(network);
+            if (networkInfo != null) {
+                LinkProperties linkProperties = connectivityManager.getLinkProperties(network);
+                if (linkProperties != null) {
+                    Log.d("LockerDnsInfo", "iface = " + linkProperties.getInterfaceName());
+                    Log.d("LockerDnsInfo", "dns = " + linkProperties.getDnsServers());
+                }
+            }
+        }
+    }
+
+
     private void loadRules(int requestId) {
         Intent chooseFile;
         Intent intent;
@@ -149,6 +176,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         checkPermissions();
+        printDnsServers();
     }
 
     @TargetApi(Build.VERSION_CODES.M)

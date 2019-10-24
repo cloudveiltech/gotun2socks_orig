@@ -391,6 +391,7 @@ loop:
 	for {
 		n, addr, err := u.ReadFromUDP(buf[:])
 		if err != nil {
+			log.Printf("Udp Read Error: %s", err)
 			break loop
 		}
 		b := make([]byte, n)

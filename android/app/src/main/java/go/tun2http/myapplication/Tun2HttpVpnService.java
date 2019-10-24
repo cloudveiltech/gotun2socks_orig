@@ -22,6 +22,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
+import java.net.Inet6Address;
 import java.net.InetAddress;
 
 import gotun2socks.Gotun2socks;
@@ -106,11 +107,10 @@ public class Tun2HttpVpnService extends VpnService {
         builder.addAddress("fc00::1", 7);
         builder.addRoute("0.0.0.0", 0);
         builder.addRoute("0:0:0:0:0:0:0:0", 0);
-/*
-        String dnsServer = "2001:4860:4860::8888";
+
+ 		String dnsServer = "2001:4860:4860::8888";
         builder.addDnsServer(dnsServer);
-        Gotun2socks.setDnsServer(dnsServer);
-*/
+        Gotun2socks.setDnsServer(dnsServer, 53);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             try {
                 builder.addDisallowedApplication(getPackageName());

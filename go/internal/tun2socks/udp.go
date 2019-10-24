@@ -175,9 +175,10 @@ func (ut *udpConnTrack) send(data []byte) {
 	}
 }
 
-func dialUdpTransparent(address string) (conn *gosocks.SocksConn, err error) {
+func dialUdpTransparent(address string) (conn *gosocks.SocksConn, err error) {	
 	c, err := net.DialTimeout("udp", address, time.Second)
 	if err != nil {
+		log.Printf("Error dial udp: %s", err)
 		return
 	}
 	conn = &gosocks.SocksConn{c.(*net.UDPConn), time.Second}
@@ -188,11 +189,20 @@ func (ut *udpConnTrack) run() {
 	// connect to socks
 	var e error
 
+	targetIp := ut.remoteIP
+	port := ut.remotePort
+	if ut.t2s.isDNS(port) {
+		if ut.t2s.customDnsHost != nil {
+			port = ut.t2s.customDnsPort
+			targetIp = ut.t2s.customDnsHost
+		}
+	}
+
 	var remoteIpPort = ""
-	if ut.remoteIP.To16() != nil {
-		remoteIpPort = fmt.Sprintf("[%s]:%d", ut.remoteIP.String(), ut.remotePort)
+	if targetIp.To4() != nil {
+		remoteIpPort = fmt.Sprintf("%s:%d", targetIp.String(), port)
 	} else {
-		remoteIpPort = fmt.Sprintf("%s:%d", ut.remoteIP.String(), ut.remotePort)
+		remoteIpPort = fmt.Sprintf("[%s]:%d", targetIp.String(), port)
 	}
 
 	ut.socksConn, e = dialUdpTransparent(remoteIpPort) //bypass udp
@@ -226,7 +236,7 @@ func (ut *udpConnTrack) run() {
 		return
 	}
 
-	relayAddr := gosocks.SocksAddrToNetAddr("udp", ut.remoteIP.String(), ut.remotePort).(*net.UDPAddr)
+	relayAddr := gosocks.SocksAddrToNetAddr("udp", targetIp.String(), port).(*net.UDPAddr)
 
 	ut.socksConn.SetDeadline(time.Time{})
 	// monitor socks TCP connection
@@ -258,12 +268,13 @@ func (ut *udpConnTrack) run() {
 
 			ut.send(pkt.Data)
 
-			if ut.t2s.isDNS(ut.remoteIP.String(), ut.remotePort) {
+			if ut.t2s.isDNS(ut.remotePort) {
+				// dumpDnsResponse(pkt.Data)
 				// DNS-without-fragment only has one request-response
 				//	end := time.Now()
 				//	ms := end.Sub(start).Nanoseconds() / 1000000
 				//log.Printf("DNS session response received: %d ms ", ms)
-				if ut.remoteIP.To16() == nil {
+				if ut.remoteIP.To4() != nil {
 					if ut.t2s.cache != nil {
 						ut.t2s.cache.store(pkt.Data)
 					}
@@ -385,11 +396,11 @@ func (t2s *Tun2Socks) getUDPConnTrack(id string, ip *packet.Ip, udp *packet.UDP)
 }
 
 func (t2s *Tun2Socks) udp(raw []byte, ip *packet.Ip, udp *packet.UDP) {
-	//	var buf [1024]byte
+	var buf [1024]byte
 	var done bool
 
 	// first look at dns cache
-	/*if t2s.cache != nil && t2s.isDNS(ip.Dst.String(), udp.DstPort) {
+	if t2s.cache != nil && t2s.isDNS(udp.DstPort) {
 		answer := t2s.cache.query(udp.Payload)
 		if answer != nil {
 			data, e := answer.PackBuffer(buf[:])
@@ -408,10 +419,10 @@ func (t2s *Tun2Socks) udp(raw []byte, ip *packet.Ip, udp *packet.UDP) {
 				done = true
 			}
 		}
-	}*/
+	}
 
-	if !t2s.isDNS(ip.Dst.String(), udp.DstPort) {
-		//		done = true
+	if !t2s.isDNS(udp.DstPort) {
+		done = true
 	}
 
 	// then open a udpConnTrack to forward
@@ -440,8 +451,8 @@ func cacheKey(q dns.Question) string {
 	return string(append([]byte(q.Name), packUint16(q.Qtype)...))
 }
 
-func (t2s *Tun2Socks) isDNS(remoteIP string, remotePort uint16) bool {
-	return remotePort == 53
+func (t2s *Tun2Socks) isDNS(remotePort uint16) bool {
+	return remotePort == 53 || remotePort == 853
 }
 
 func (c *dnsCache) query(payload []byte) *dns.Msg {

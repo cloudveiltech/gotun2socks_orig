@@ -2,6 +2,7 @@ package gotun2socks
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"runtime"
@@ -38,6 +39,8 @@ var defaultProxy = &tun2socks.ProxyServer{
 }
 
 var dnsServer string = ""
+var dnsPort uint16 = 53
+var dnsIp net.IP
 var callback *Callbacks = nil
 var customDialer net.Dialer
 var proxyServerMap map[int]*tun2socks.ProxyServer
@@ -94,13 +97,15 @@ func SetUidCallback(javaCallback JavaUidCallback) {
 	log.Printf("Uid callback set")
 }
 
-func SetDnsServer(server string) {
+func SetDnsServer(server string, port int) {
 	dnsServer = server
+	dnsPort = uint16(port)
+	dnsIp = net.ParseIP(server)
 
-	if strings.Count(server, ":") > 1 { //possible ipv6
-		dnsServer = "[" + server + "]:53"
-	} else if !strings.Contains(server, ":") {
-		dnsServer = server + ":53"
+	if strings.Count(server, ":") > 1 { //ipv6
+		dnsServer = fmt.Sprintf("[%s]:%d", server, port)
+	} else {
+		dnsServer = fmt.Sprintf("%s:%d", server, port)
 	}
 }
 
@@ -112,7 +117,7 @@ func Run(descriptor int, maxCpus int, startLocalServer bool, certPath, certKeyPa
 	var enableDnsCache bool = true
 
 	f := tun.NewTunDev(uintptr(descriptor), "tun0", tunAddr, tunGW)
-	tun2SocksInstance = tun2socks.New(f, enableDnsCache)
+	tun2SocksInstance = tun2socks.New(f, enableDnsCache, dnsIp, dnsPort)
 
 	tun2SocksInstance.SetDefaultProxy(defaultProxy)
 	tun2SocksInstance.SetProxyServers(proxyServerMap)
@@ -134,6 +139,7 @@ func Run(descriptor int, maxCpus int, startLocalServer bool, certPath, certKeyPa
 			Dial:     customDNSDialer,
 		}
 		net.DefaultResolver = &r
+
 	}
 
 	if startLocalServer {
