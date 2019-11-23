@@ -19,8 +19,8 @@ gobind {
 
     /* Absolute path to the go binary */
     GO = "c:/Go"
-    GOMOBILEFLAGS = "-ldflags=\"-s -w\""
-    GOMOBILEFLAGS = "-gcflags=\"-v\""
+  //  GOMOBILEFLAGS = "-ldflags=\"-s -w\""
+//    GOMOBILEFLAGS = "-gcflags=\"-v\""
 
     /* Optionally, set the absolute path to the gomobile binary if the
     /* gomobile binary is not located in the GOPATH's bin directory. */

@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
 import android.net.VpnService;
@@ -24,6 +25,8 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.Inet6Address;
 import java.net.InetAddress;
+
+import javax.annotation.Nonnull;
 
 import gotun2socks.Gotun2socks;
 
@@ -55,8 +58,8 @@ public class Tun2HttpVpnService extends VpnService {
             connectivityChangeReceiver = new ConnectivityChangeReceiver((ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE));
         }
         if (parcelFileDescriptor == null) {
-            setupProxyServers();
             Builder builder = setupBuilder();
+            setupProxyServers(builder);
             parcelFileDescriptor = builder.establish();
 
             String dir = Environment.getExternalStorageDirectory().getAbsolutePath();
@@ -103,32 +106,54 @@ public class Tun2HttpVpnService extends VpnService {
         builder.setSession(getString(R.string.app_name));
 
         // VPN address
-        builder.addAddress("10.0.0.2", 32);
+     //   builder.addAddress("10.0.0.2", 32);
         builder.addAddress("fc00::1", 7);
         builder.addRoute("0.0.0.0", 0);
         builder.addRoute("0:0:0:0:0:0:0:0", 0);
 
- 		String dnsServer = "2001:4860:4860::8888";
-        builder.addDnsServer(dnsServer);
-        Gotun2socks.setDnsServer(dnsServer, 53);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+ 		//String dnsServer = "2001:4860:4860::8888";
+      //  builder.addDnsServer(dnsServer);
+    //    Gotun2socks.setDnsServer(dnsServer, 53);
+    /*    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             try {
                 builder.addDisallowedApplication(getPackageName());
             } catch (PackageManager.NameNotFoundException e) {
                 e.printStackTrace();
             }
         }
-
+*/
         builder.setMtu(10240);
 
         return builder;
     }
 
-    private void setupProxyServers() {
+    public ApplicationInfo getApplicationInfo(String packageName) {
+        if (packageName == null)
+            return null;
+        try {
+            return getPackageManager().getApplicationInfo(packageName, PackageManager.GET_META_DATA);
+        } catch (PackageManager.NameNotFoundException e) {
+            return null;
+        }
+    }
+
+    private void setupProxyServers(@Nonnull Builder builder) {
         String header = Base64.encodeToString(("test@test.com" + ":" + "1").getBytes(), Base64.NO_WRAP);
 //        Gotun2socks.setDefaultProxy("45.79.132.164:19752", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
+        Gotun2socks.setDefaultProxy(":", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
 
-       Gotun2socks.setDefaultProxy("[::1]:23500", PROXY_TYPE_HTTP, header, "cloudveilsocks", "cloudveilsocks");
+        ApplicationInfo applicationInfo = getApplicationInfo("com.android.chrome");
+        if(applicationInfo == null) {
+            return;
+        }
+        Gotun2socks.addProxyServer(applicationInfo.uid, "[::1]:23500", PROXY_TYPE_HTTP, "","cloudveilsocks", "cloudveilsocks");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            try {
+                builder.addAllowedApplication("com.android.chrome");
+            } catch (PackageManager.NameNotFoundException e) {
+                e.printStackTrace();
+            }
+        }
     }
 
     @Override

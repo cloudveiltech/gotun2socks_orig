@@ -187,7 +187,7 @@ func (t2s *Tun2Socks) Run() {
 		t2s.wg.Add(1)
 		defer t2s.wg.Done()
 
-		buf := newBuffer()
+		buf := make([]byte, 2*MTU)
 		for {
 			select {
 			case pkt := <-t2s.writeCh:

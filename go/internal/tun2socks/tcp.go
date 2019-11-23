@@ -210,7 +210,7 @@ func (pkt *tcpPacket) packTcpIntoBuff(buf []byte) int {
 	tcp := pkt.tcp
 
 	payloadL := len(tcp.Payload)
-	payloadStart := MTU - payloadL
+	payloadStart := len(buf) - payloadL
 	if payloadL != 0 {
 		copy(buf[payloadStart:], tcp.Payload)
 	}
@@ -568,7 +568,6 @@ func (tt *tcpConnTrack) loadProxyConfig() {
 func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn, readCh chan<- []byte, writeCh <-chan *tcpPacket, closeCh chan bool) {
 	if tt.uid == -1 {
 		uid := tt.t2s.FindAppUid(tt.localIP.String(), tt.localPort, dstIP.String(), dstPort)
-		log.Printf("UID for TCP request from %s:%d to %s:%d is %d", tt.localIP.String(), tt.localPort, dstIP.String(), dstPort, uid)
 		tt.uid = uid
 		tt.loadProxyConfig()
 	}
