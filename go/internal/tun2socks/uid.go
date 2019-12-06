@@ -135,7 +135,6 @@ func (t2s *Tun2Socks) FindAppUid(sourceIp string, sourcePort uint16, destIp stri
 		dIp := convertIp(destIpPort[0])
 		dPort := hexToDec(destIpPort[1])
 
-		log.Printf("UID for TCP ipV6 dIp %s sIp %s", dIp, sIp)
 		if sPort == sourcePort && dPort == destPort {
 			if sIp == sourceIp && destIp == dIp {
 				uid, err := strconv.Atoi(lineArray[7])

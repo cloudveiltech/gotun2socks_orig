@@ -110,7 +110,7 @@ func SetDnsServer(server string, port int) {
 }
 
 func Run(descriptor int, maxCpus int, startLocalServer bool, certPath, certKeyPath string) {
-	//runtime.GOMAXPROCS(maxCpus)
+	//	runtime.GOMAXPROCS(maxCpus)
 
 	var tunAddr string = "10.253.253.253"
 	var tunGW string = "10.0.0.1"

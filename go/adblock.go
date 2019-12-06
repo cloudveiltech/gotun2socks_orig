@@ -11,6 +11,7 @@ import (
 	"github.com/patriciy/adblock/adblock"
 
 	goahocorasick "github.com/anknown/ahocorasick"
+	lru "github.com/hashicorp/golang-lru"
 )
 
 const (
@@ -23,6 +24,12 @@ const MAX_CONTENT_SIZE_SCAN = 1000 * 1024 //500kb max to scan
 var adblockMatcher *AdBlockMatcher
 
 var defaultBlockPageContent = "%url% is blocked. Category %category%. Reason %reason%"
+var lruCache, _ = lru.New(1024)
+
+type cacheItem struct {
+	category  *string
+	matchType int
+}
 
 type MatcherCategory struct {
 	Category       string
@@ -93,8 +100,16 @@ func (am *AdBlockMatcher) GetBlockPage(url string, category string, reason strin
 }
 
 func (am *AdBlockMatcher) TestUrlBlocked(url string, host string, referer string) (*string, int) {
+	cacheKey := url + host
+	if v, ok := lruCache.Get(cacheKey); ok {
+		item := v.(cacheItem)
+
+		log.Printf("Cache hit: %s %d", url, item.matchType)
+		return item.category, item.matchType
+	}
 	res1, res2 := am.matchRulesCategories(am.MatcherCategories, url, host, referer)
 	if res1 != nil {
+		lruCache.Add(cacheKey, cacheItem{category: res1, matchType: res2})
 		return res1, res2
 	}
 
@@ -102,7 +117,13 @@ func (am *AdBlockMatcher) TestUrlBlocked(url string, host string, referer string
 		return nil, Included
 	}
 
-	return am.matchRulesCategories(am.BypassMatcherCategories, url, host, referer)
+	res1, res2 = am.matchRulesCategories(am.BypassMatcherCategories, url, host, referer)
+	if res1 != nil {
+		lruCache.Add(cacheKey, cacheItem{category: res1, matchType: res2})
+	}
+
+	lruCache.Add(cacheKey, cacheItem{category: nil, matchType: Included})
+	return res1, res2
 }
 
 func (am *AdBlockMatcher) matchRulesCategories(matcherCategories []*MatcherCategory, url string, host string, referer string) (*string, int) {
