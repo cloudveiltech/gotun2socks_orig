@@ -1,4 +1,4 @@
-package gotun2socks
+package main
 
 import (
 	"crypto/ecdsa"
@@ -42,13 +42,11 @@ func LoadAndSetCa(certFile, keyFile string) {
 func setCA(caCert, caKey []byte) error {
 	goproxyCa, err := tls.X509KeyPair(caCert, caKey)
 	if err != nil {
-		log.Printf("Can't load cert/key file")
-		log.Fatal(err)
+		log.Printf("Can't load cert/key file %s", err)
 		return err
 	}
 	if goproxyCa.Leaf, err = x509.ParseCertificate(goproxyCa.Certificate[0]); err != nil {
-		log.Printf("Can't parse cert key/file")
-		log.Fatal(err)
+		log.Printf("Can't parse cert key/file %s", err)
 		return err
 	}
 	goproxy.GoproxyCa = goproxyCa
@@ -111,7 +109,8 @@ func GenerateCerts(caCertPath, caKeyPath string) bool {
 
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, publicKey(priv), priv)
 	if err != nil {
-		log.Fatalf("Failed to create certificate: %s", err)
+		log.Printf("Failed to create certificate: %s", err)
+		return false
 	}
 
 	certFile, err := os.Create(caCertPath)

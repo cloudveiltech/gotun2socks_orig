@@ -1,4 +1,4 @@
-package gotun2socks
+package main
 
 import (
 	"compress/gzip"
@@ -190,6 +190,10 @@ func (am *AdBlockMatcher) TestContainsForbiddenPhrases(str []byte) *string {
 	text := []rune(strings.ToLower(string(str)))
 
 	for _, phraseCategory := range am.PhraseCategories {
+		if phraseCategory.processor == nil {
+			continue
+		}
+
 		res := phraseCategory.processor.MultiPatternSearch(text, true)
 		if len(res) > 0 {
 			return &phraseCategory.Category

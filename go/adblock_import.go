@@ -1,4 +1,4 @@
-package gotun2socks
+package main
 
 import (
 	"archive/zip"

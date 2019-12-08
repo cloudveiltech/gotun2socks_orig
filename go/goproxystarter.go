@@ -1,21 +1,15 @@
-package gotun2socks
+package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io/ioutil"
 	"log"
-	"net"
 	"net/http"
-	"net/url"
-	"strings"
 	"time"
 
 	"github.com/elazarl/goproxy"
-	"github.com/inconshreveable/go-vhost"
 )
 
 //import _ "net/http/pprof"
@@ -30,7 +24,7 @@ func initGoProxy() {
 	//redirectStderr(fd)
 
 	proxy = goproxy.NewProxyHttpServer()
-	proxy.Verbose = false
+	proxy.Verbose = true
 
 	proxy.NonproxyHandler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Host == "" {
@@ -48,96 +42,6 @@ func initGoProxy() {
 	if proxy.Verbose {
 		log.Printf("Server inited")
 	}
-}
-
-func dialRemote(req *http.Request) net.Conn {
-	port := ""
-	if !strings.Contains(req.Host, ":") {
-		if req.URL.Scheme == "https" {
-			port = ":443"
-		} else {
-			port = ":80"
-		}
-	}
-
-	if req.URL.Scheme == "https" {
-		conf := tls.Config{
-			//InsecureSkipVerify: true,
-		}
-		remote, err := tls.Dial("tcp", req.Host+port, &conf)
-		if err != nil {
-			log.Printf("Websocket error connect %s", err)
-			return nil
-		}
-		return remote
-	} else {
-		remote, err := net.Dial("tcp", req.Host+port)
-		if err != nil {
-			log.Printf("Websocket error connect %s", err)
-			return nil
-		}
-		return remote
-	}
-}
-
-func startHttpsServer() {
-	// listen to the TLS ClientHello but make it a CONNECT request instead
-	ln, err := net.Listen("tcp", ":23501")
-	if err != nil {
-		log.Fatalf("Error listening for https connections - %v", err)
-	}
-	for {
-		c, err := ln.Accept()
-		if err != nil {
-			log.Printf("Error accepting new connection - %v", err)
-			continue
-		}
-		go func(c net.Conn) {
-			tlsConn, err := vhost.TLS(c)
-			if err != nil {
-				log.Printf("Error accepting new connection - %v", err)
-			}
-			if tlsConn.Host() == "" {
-				log.Printf("Cannot support non-SNI enabled clients")
-				return
-			}
-			connectReq := &http.Request{
-				Method: "CONNECT",
-				URL: &url.URL{
-					Opaque: tlsConn.Host(),
-					Host:   net.JoinHostPort(tlsConn.Host(), "443"),
-				},
-				Host:       tlsConn.Host(),
-				Header:     make(http.Header),
-				RemoteAddr: c.RemoteAddr().String(),
-			}
-			resp := dumbResponseWriter{tlsConn}
-			proxy.ServeHTTP(resp, connectReq)
-		}(c)
-	}
-}
-
-type dumbResponseWriter struct {
-	net.Conn
-}
-
-func (dumb dumbResponseWriter) Header() http.Header {
-	panic("Header() should not be called on this ResponseWriter")
-}
-
-func (dumb dumbResponseWriter) Write(buf []byte) (int, error) {
-	if bytes.Equal(buf, []byte("HTTP/1.0 200 OK\r\n\r\n")) {
-		return len(buf), nil // throw away the HTTP OK response from the faux CONNECT request
-	}
-	return dumb.Conn.Write(buf)
-}
-
-func (dumb dumbResponseWriter) WriteHeader(code int) {
-	panic("WriteHeader() should not be called on this ResponseWriter")
-}
-
-func (dumb dumbResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	return dumb, bufio.NewReadWriter(bufio.NewReader(dumb), bufio.NewWriter(dumb)), nil
 }
 
 func startHttpServer() *http.Server {
@@ -172,7 +76,6 @@ func startGoProxyServer(certPath, certKeyPath string) {
 	}
 
 	server = startHttpServer()
-	go startHttpsServer()
 
 	proxy.OnRequest().DoFunc(
 		func(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
