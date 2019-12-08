@@ -1,15 +1,19 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/elazarl/goproxy"
+	"github.com/inconshreveable/go-vhost"
 )
 
 //import _ "net/http/pprof"
@@ -24,7 +28,7 @@ func initGoProxy() {
 	//redirectStderr(fd)
 
 	proxy = goproxy.NewProxyHttpServer()
-	proxy.Verbose = true
+	proxy.Verbose = false
 
 	proxy.NonproxyHandler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Host == "" {
@@ -44,8 +48,78 @@ func initGoProxy() {
 	}
 }
 
+type dumbResponseWriter struct {
+	net.Conn
+}
+
+func (dumb dumbResponseWriter) Header() http.Header {
+	//	panic("Header() should not be called on this ResponseWriter")
+	return make(http.Header)
+}
+
+func (dumb dumbResponseWriter) Write(buf []byte) (int, error) {
+	if bytes.Equal(buf, []byte("HTTP/1.0 200 OK\r\n\r\n")) {
+		return len(buf), nil // throw away the HTTP OK response from the faux CONNECT request
+	}
+	return dumb.Conn.Write(buf)
+}
+
+func (dumb dumbResponseWriter) WriteHeader(code int) {
+	//	panic("WriteHeader() should not be called on this ResponseWriter")
+}
+
+func (dumb dumbResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return dumb, bufio.NewReadWriter(bufio.NewReader(dumb), bufio.NewWriter(dumb)), nil
+}
+
+func runHttpsListener() {
+	// listen to the TLS ClientHello but make it a CONNECT request instead
+	ln, err := net.Listen("tcp", ":8203")
+
+	if err != nil {
+		log.Printf("Error listening for https connections - %v", err)
+		return
+	}
+
+	for {
+		c, err := ln.Accept()
+		if err != nil {
+			log.Printf("Error accepting new connection - %v", err)
+			continue
+		}
+
+		go func(c net.Conn) {
+			tlsConn, err := vhost.TLS(c)
+			if err != nil {
+				log.Printf("Error accepting new connection - %v", err)
+			}
+			if tlsConn.Host() == "" {
+				log.Printf("Cannot support non-SNI enabled clients")
+				return
+			}
+
+			if proxy.Verbose {
+				log.Printf("Https handler called for %s", tlsConn.Host())
+			}
+
+			connectReq := &http.Request{
+				Method: "CONNECT",
+				URL: &url.URL{
+					Opaque: tlsConn.Host(),
+					Host:   net.JoinHostPort(tlsConn.Host(), "443"),
+				},
+				Host:   tlsConn.Host(),
+				Header: make(http.Header),
+			}
+
+			resp := dumbResponseWriter{tlsConn}
+			proxy.ServeHTTP(resp, connectReq)
+		}(c)
+	}
+}
+
 func startHttpServer() *http.Server {
-	srv := &http.Server{Addr: fmt.Sprintf(":%d", 23500)}
+	srv := &http.Server{Addr: fmt.Sprintf(":%d", 8202)}
 	srv.Handler = proxy
 
 	// go func() {
@@ -122,6 +196,8 @@ func startGoProxyServer(certPath, certKeyPath string) {
 			}
 			return resp
 		})
+
+	go runHttpsListener()
 
 	if proxy.Verbose {
 		log.Printf("Server started")
