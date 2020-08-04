@@ -170,12 +170,15 @@ func (t2s *Tun2Socks) Stop() {
 		}
 		close(tcpTrack.quitByOther)
 	}
+	t2s.tcpConnTrackMap = make(map[string]*tcpConnTrack)
 
 	t2s.udpConnTrackLock.Lock()
 	defer t2s.udpConnTrackLock.Unlock()
 	for _, udpTrack := range t2s.udpConnTrackMap {
 		close(udpTrack.quitByOther)
 	}
+	t2s.udpConnTrackMap = make(map[string]*udpConnTrack)
+
 	t2s.stopped = true
 	t2s.wg.Wait()
 	log.Print("Stop")
