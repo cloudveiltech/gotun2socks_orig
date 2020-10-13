@@ -90,5 +90,5 @@ func (dev *tunDev) Write(data []byte) (int, error) {
 func (dev *tunDev) Close() error {
 	log.Printf("send stop marker")
 	sendStopMarker(dev.addr, dev.gw)
-	return dev.f.Close()
+	return nil
 }

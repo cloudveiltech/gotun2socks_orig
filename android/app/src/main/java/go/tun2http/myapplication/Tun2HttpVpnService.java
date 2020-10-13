@@ -146,7 +146,7 @@ public class Tun2HttpVpnService extends VpnService {
         if(applicationInfo == null) {
             return;
         }
-        Gotun2socks.addProxyServer(applicationInfo.uid, "[::1]:23500", PROXY_TYPE_HTTP, "","cloudveilsocks", "cloudveilsocks");
+        Gotun2socks.addProxyServer(applicationInfo.uid, "proxy_us_nj_1.cloudveil.org:8085", PROXY_TYPE_HTTP, "","cloudveilsocks", "cloudveilsocks");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             try {
                 builder.addAllowedApplication("com.android.chrome");

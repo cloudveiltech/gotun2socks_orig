@@ -8,7 +8,6 @@ plugins {
     id "org.golang.mobile.bind" version "0.2.13"
 }
 
-
 gobind {
     /* The Go package path; must be under one of the GOPATH elements or
      a relative to the current directory (e.g. ../../hello) */
@@ -16,11 +15,11 @@ gobind {
 
     /* GOPATH where the Go package is; check `go env` */
     GOPATH = "C:/Users/dgora/go"
-
     /* Absolute path to the go binary */
     GO = "c:/Go"
-  //  GOMOBILEFLAGS = "-ldflags=\"-s -w\""
-//    GOMOBILEFLAGS = "-gcflags=\"-v\""
+    GOMOBILEFLAGS = "-ldflags=\"-s -w\""
+//    GOMOBILEFLAGS = org.golang.mobile.bind
+//    "-gcflags=\"-v\""
 
     /* Optionally, set the absolute path to the gomobile binary if the
     /* gomobile binary is not located in the GOPATH's bin directory. */
