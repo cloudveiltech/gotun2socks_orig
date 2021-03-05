@@ -403,7 +403,6 @@ loop:
 		}
 	}
 
-	log.Printf("UDP exit reader")
 	close(ch)
 }
 

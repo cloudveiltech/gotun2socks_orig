@@ -11,6 +11,8 @@ import (
 
 	"github.com/dkwiebe/gotun2socks/internal/tun"
 	"github.com/dkwiebe/gotun2socks/internal/tun2socks"
+
+	_ "net/http/pprof"
 )
 
 type JavaUidCallback interface {
@@ -142,7 +144,6 @@ func Run(descriptor int, maxCpus int, startLocalServer bool, certPath, certKeyPa
 			Dial:     customDNSDialer,
 		}
 		net.DefaultResolver = &r
-
 	}
 
 	if startLocalServer {
@@ -152,6 +153,14 @@ func Run(descriptor int, maxCpus int, startLocalServer bool, certPath, certKeyPa
 	log.Printf("Tun2Htpp started")
 	debug.SetTraceback("all")
 	debug.SetPanicOnFault(true)
+
+	/*	go func() {
+		log.Printf("Starting Server! \t Go to http://localhost:6060/debug/pprof/\n")
+		err := http.ListenAndServe("localhost:6060", nil)
+		if err != nil {
+			log.Printf("Failed to start the server! Error: %v", err)
+		}
+	}()*/
 }
 
 func Stop() {

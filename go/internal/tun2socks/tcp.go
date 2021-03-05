@@ -93,6 +93,9 @@ var (
 			return &tcpPacket{}
 		},
 	}
+
+	tcpTrackRunTaskPool  *taskPool = makeTaskPool()
+	tcpReadWriteTaskPool *taskPool = makeTaskPool()
 )
 
 func tcpflagsString(tcp *packet.TCP) string {
@@ -538,7 +541,6 @@ func (tt *tcpConnTrack) callSocks(dstIP net.IP, dstPort uint16, conn net.Conn, c
 }
 
 func (tt *tcpConnTrack) callHttpProxyConnect(conn net.Conn, dstIp net.IP, tcp *packet.TCP) error {
-	log.Printf("callHttpProxyConnect")
 	//"CONNECT %s:443 HTTP/1.1\r\nProxy-Authorization: Basic %s\r\nConnection: close\r\n\r\n",
 	if len(tcp.Hostname) == 0 {
 		tcp.Hostname = dstIp.String()
@@ -555,15 +557,12 @@ func (tt *tcpConnTrack) callHttpProxyConnect(conn net.Conn, dstIp net.IP, tcp *p
 }
 
 func (tt *tcpConnTrack) loadProxyConfig() {
-	log.Printf("loadProxyConfig for uid %d", tt.uid)
-
 	proxyServer, ok := tt.t2s.proxyServerMap[tt.uid]
 	if !ok {
 		tt.proxyServer = tt.t2s.defaultProxyServer
 	} else {
 		tt.proxyServer = proxyServer
 	}
-
 	log.Printf("Proxy selected: address %s, type: %d", tt.proxyServer.IpAddress, tt.proxyServer.ProxyType)
 }
 
@@ -589,124 +588,133 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 	}
 
 	// writer
-	go func() {
-	loop:
-		for {
-			select {
-			case <-closeCh:
-				break loop
-			case pkt := <-writeCh:
-				if tt.connectState == CONNECT_NOT_SENT {
-					err := tt.callHttpProxyConnect(conn, dstIP, pkt.tcp)
-					if err != nil {
-						log.Printf("Can't send connect request")
-					}
+	var writerFunc func()
+	writerFunc = func() {
+		if tt.t2s.stopped || tt.destroyed {
+			log.Print("Writer exit routine")
+			return
+		}
 
-					tt.connectState = CONNECT_SENT
+		select {
+		case <-closeCh:
+			log.Print("Writer exit routine")
+			return
+		case pkt := <-writeCh:
+			if tt.connectState == CONNECT_NOT_SENT {
+				err := tt.callHttpProxyConnect(conn, dstIP, pkt.tcp)
+				if err != nil {
+					log.Printf("Can't send connect request")
 				}
 
-				if tt.proxyServer.ProxyType == PROXY_TYPE_HTTP {
-					if tt.connectState != CONNECT_ESTABLISHED {
-						tt.recvWndCond.L.Lock()
-						tt.recvWndCond.Wait()
-						tt.recvWndCond.L.Unlock()
-					}
-
-					if pkt.tcp.DstPort == 443 {
-						conn.Write(pkt.tcp.Payload)
-					} else {
-						conn.Write(pkt.tcp.PatchHostForPlainHttp(tt.proxyServer.AuthHeader))
-					}
-
-				} else {
-					conn.Write(pkt.tcp.Payload)
-				}
-
-				// increase window when processed
-				wnd := atomic.LoadInt32(&tt.recvWindow)
-				wnd += int32(len(pkt.tcp.Payload))
-				if wnd > int32(MAX_RECV_WINDOW) {
-					wnd = int32(MAX_RECV_WINDOW)
-				}
-				atomic.StoreInt32(&tt.recvWindow, wnd)
-
-				releaseTCPPacket(pkt)
-			default:
-				if tt.t2s.stopped || tt.destroyed {
-					break loop
-				}
-				time.Sleep(10 * time.Millisecond)
+				tt.connectState = CONNECT_SENT
 			}
 
+			if tt.proxyServer.ProxyType == PROXY_TYPE_HTTP {
+				if tt.connectState != CONNECT_ESTABLISHED {
+					tt.recvWndCond.L.Lock()
+					tt.recvWndCond.Wait()
+					tt.recvWndCond.L.Unlock()
+				}
+
+				if pkt.tcp.DstPort == 443 {
+					conn.Write(pkt.tcp.Payload)
+				} else {
+					conn.Write(pkt.tcp.PatchHostForPlainHttp(tt.proxyServer.AuthHeader))
+				}
+
+			} else {
+				conn.Write(pkt.tcp.Payload)
+			}
+
+			// increase window when processed
+			wnd := atomic.LoadInt32(&tt.recvWindow)
+			wnd += int32(len(pkt.tcp.Payload))
+			if wnd > int32(MAX_RECV_WINDOW) {
+				wnd = int32(MAX_RECV_WINDOW)
+			}
+			atomic.StoreInt32(&tt.recvWindow, wnd)
+
+			releaseTCPPacket(pkt)
+		default:
+			if tt.t2s.stopped || tt.destroyed {
+				log.Print("Writer exit routine")
+				return
+			}
 		}
-		log.Print("Writer exit routine")
-	}()
+
+		tcpReadWriteTaskPool.SubmitAsyncTask(writerFunc)
+	}
+	tcpReadWriteTaskPool.SubmitAsyncTask(writerFunc)
 
 	// reader
-
-	var buf [MTU - 40]byte
-	for {
-		if tt.t2s.stopped || tt.destroyed {
-			break
-		}
-
-		// tt.sendWndCond.L.Lock()
-		var wnd int32
-		var cur int32
-		wnd = atomic.LoadInt32(&tt.sendWindow)
-
-		if wnd <= 0 {
-			for wnd <= 0 {
-				tt.sendWndCond.L.Lock()
-				tt.sendWndCond.Wait()
-				wnd = atomic.LoadInt32(&tt.sendWindow)
-			}
-			tt.sendWndCond.L.Unlock()
-		}
-
-		cur = wnd
-		if cur > MTU-40 {
-			cur = MTU - 40
-		}
-		// tt.sendWndCond.L.Unlock()
-		if tt.connectState == CONNECT_SENT {
-			conn.Read(buf[:])
-			log.Print("Reading connect")
-			tt.connectState = CONNECT_ESTABLISHED
-			tt.recvWndCond.Broadcast()
-		} else if tt.connectState == CONNECT_ESTABLISHED {
-			n, e := conn.Read(buf[:cur])
-
-			if n > 0 {
-				b := make([]byte, n)
-				copy(b, buf[:n])
-				readCh <- b
-
-				// tt.sendWndCond.L.Lock()
-				nxt := wnd - int32(n)
-				if nxt < 0 {
-					nxt = 0
-				}
-				// if sendWindow does not equal to wnd, it is already updated by a
-				// received pkt from TUN
-				atomic.CompareAndSwapInt32(&tt.sendWindow, wnd, nxt)
-				// tt.sendWndCond.L.Unlock()
-			}
-
-			if e != nil {
-				log.Printf("error to read from socks: %s", e)
+	var readerFunc func()
+	readerFunc = func() {
+		var buf [MTU - 40]byte
+		for {
+			if tt.t2s.stopped || tt.destroyed {
 				break
 			}
+
+			// tt.sendWndCond.L.Lock()
+			var wnd int32
+			var cur int32
+			wnd = atomic.LoadInt32(&tt.sendWindow)
+
+			if wnd <= 0 {
+				for wnd <= 0 {
+					tt.sendWndCond.L.Lock()
+					tt.sendWndCond.Wait()
+					wnd = atomic.LoadInt32(&tt.sendWindow)
+				}
+				tt.sendWndCond.L.Unlock()
+			}
+
+			cur = wnd
+			if cur > MTU-40 {
+				cur = MTU - 40
+			}
+			// tt.sendWndCond.L.Unlock()
+			if tt.connectState == CONNECT_SENT {
+				conn.Read(buf[:])
+				log.Print("Reading connect")
+				tt.connectState = CONNECT_ESTABLISHED
+				tt.recvWndCond.Broadcast()
+			} else if tt.connectState == CONNECT_ESTABLISHED {
+				n, e := conn.Read(buf[:cur])
+
+				if n > 0 {
+					b := make([]byte, n)
+					copy(b, buf[:n])
+					readCh <- b
+
+					// tt.sendWndCond.L.Lock()
+					nxt := wnd - int32(n)
+					if nxt < 0 {
+						nxt = 0
+					}
+					// if sendWindow does not equal to wnd, it is already updated by a
+					// received pkt from TUN
+					atomic.CompareAndSwapInt32(&tt.sendWindow, wnd, nxt)
+					// tt.sendWndCond.L.Unlock()
+				}
+
+				if e != nil {
+					log.Printf("error to read from socks: %s", e)
+					break
+				}
+			}
+			tt.recvWndCond.Broadcast()
 		}
+
 		tt.recvWndCond.Broadcast()
+		if !tt.destroyed {
+			closeCh <- true
+			close(closeCh)
+		}
+		log.Print("Reader exit routine")
 	}
 
-	tt.recvWndCond.Broadcast()
-	if !tt.destroyed {
-		closeCh <- true
-		close(closeCh)
-	}
-	log.Print("Reader exit routine")
+	go readerFunc()
 }
 
 // stateSynRcvd expects a ACK with matching ack number,
@@ -733,7 +741,10 @@ func (tt *tcpConnTrack) stateSynRcvd(pkt *tcpPacket) (continu bool, release bool
 	continu = true
 	release = true
 	tt.changeState(ESTABLISHED)
-	go tt.tcpSocks2Tun(tt.remoteIP, uint16(tt.remotePort), tt.socksConn, tt.fromSocksCh, tt.toSocksCh, tt.socksCloseCh)
+	tcpReadWriteTaskPool.SubmitAsyncTask(func() {
+		tt.tcpSocks2Tun(tt.remoteIP, uint16(tt.remotePort), tt.socksConn, tt.fromSocksCh, tt.toSocksCh, tt.socksCloseCh)
+	})
+
 	if len(pkt.tcp.Payload) != 0 {
 		if tt.relayPayload(pkt) {
 			// pkt hands to socks writer
@@ -882,18 +893,18 @@ func (tt *tcpConnTrack) run() {
 	var socksCloseCh chan bool
 	var fromSocksCh chan []byte
 	var ackTimer *time.Timer
-	var timeout *time.Timer = time.NewTimer(30 * time.Second)
 
-	for {
-		timeout.Reset(30 * time.Second)
+	var runFunc func()
 
+	defaultRun := false
+	runFunc = func() {
 		// enable some channels only when the state is ESTABLISHED
-		if tt.state == ESTABLISHED {
+		if tt.state == ESTABLISHED && !defaultRun {
 			socksCloseCh = tt.socksCloseCh
 			fromSocksCh = tt.fromSocksCh
 			if ackTimer == nil {
 				ackTimer = time.NewTimer(10 * time.Millisecond)
-			} else {
+			} else if !defaultRun {
 				ackTimer.Reset(10 * time.Millisecond)
 			}
 			ackTimeout = ackTimer.C
@@ -901,6 +912,7 @@ func (tt *tcpConnTrack) run() {
 				tt.destroyed = true
 			}
 		}
+		defaultRun = false
 
 		if tt.destroyed {
 			if tt.socksConn != nil {
@@ -908,12 +920,13 @@ func (tt *tcpConnTrack) run() {
 			}
 			close(tt.quitBySelf)
 			tt.t2s.clearTCPConnTrack(tt.id)
+			log.Print("Runner exit")
 			return
 		}
 
 		select {
 		case pkt := <-tt.input:
-			// log.Printf("--> [TCP][%s][%s][%s][seq:%d][ack:%d][payload:%d]", tt.id, tcpstateString(tt.state), tcpflagsString(pkt.tcp), pkt.tcp.Seq, pkt.tcp.Ack, len(pkt.tcp.Payload))
+			//	log.Printf("--> [TCP][%s][%s][%s][seq:%d][ack:%d][payload:%d]", tt.id, tcpstateString(tt.state), tcpflagsString(pkt.tcp), pkt.tcp.Seq, pkt.tcp.Ack, len(pkt.tcp.Payload))
 			var continu, release bool
 
 			tt.lastPacketTime = time.Now()
@@ -961,26 +974,24 @@ func (tt *tcpConnTrack) run() {
 		case <-socksCloseCh:
 			tt.finAck()
 			tt.changeState(FIN_WAIT_1)
-		case <-timeout.C:
-			if tt.socksConn != nil {
-				tt.socksConn.Close()
-			}
-			close(tt.quitBySelf)
-			tt.t2s.clearTCPConnTrack(tt.id)
-			return
-
 		case <-tt.quitByOther:
 			// who closes this channel should be responsible to clear track map
 			if tt.socksConn != nil {
 				tt.socksConn.Close()
 			}
 			return
+
+		default:
+			defaultRun = true
 		}
-		timeout.Stop()
-		if ackTimer != nil {
+
+		if !defaultRun && ackTimer != nil {
 			ackTimer.Stop()
 		}
+
+		tcpTrackRunTaskPool.SubmitAsyncTask(runFunc)
 	}
+	tcpTrackRunTaskPool.SubmitAsyncTask(runFunc)
 }
 
 func (t2s *Tun2Socks) createTCPConnTrack(id string, ip *packet.Ip, tcp *packet.TCP) *tcpConnTrack {
@@ -1024,7 +1035,7 @@ func (t2s *Tun2Socks) createTCPConnTrack(id string, ip *packet.Ip, tcp *packet.T
 
 	t2s.tcpConnTrackMap[id] = track
 
-	go track.run()
+	track.run()
 	return track
 }
 
@@ -1049,6 +1060,9 @@ func (t2s *Tun2Socks) clearTCPConnTrack(id string) {
 }
 
 func (t2s *Tun2Socks) tcp(raw []byte, ip *packet.Ip, tcp *packet.TCP) {
+	tcpReadWriteTaskPool.tun2SocksInstance = t2s
+	tcpTrackRunTaskPool.tun2SocksInstance = t2s
+
 	connID := tcpConnID(ip, tcp)
 
 	track := t2s.getTCPConnTrack(connID)

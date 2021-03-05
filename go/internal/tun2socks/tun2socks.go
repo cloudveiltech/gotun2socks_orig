@@ -180,7 +180,7 @@ func (t2s *Tun2Socks) Stop() {
 	t2s.udpConnTrackMap = make(map[string]*udpConnTrack)
 
 	t2s.stopped = true
-	t2s.wg.Wait()
+	//t2s.wg.Wait()
 	log.Print("Stop")
 }
 
@@ -231,7 +231,7 @@ func (t2s *Tun2Socks) Run() {
 				break
 			}
 
-			time.Sleep(15000 * time.Millisecond)
+			time.Sleep(1000 * time.Millisecond)
 
 			debug.FreeOSMemory()
 			log.Printf("Conn size tcp %d udp %d, routines %d", len(t2s.tcpConnTrackMap), len(t2s.udpConnTrackMap), runtime.NumGoroutine())
@@ -250,7 +250,7 @@ func (t2s *Tun2Socks) Run() {
 		}
 
 		if n == 0 {
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(time.Millisecond)
 			continue
 		}
 		if e != nil {
@@ -276,10 +276,6 @@ func (t2s *Tun2Socks) Run() {
 					continue
 				}
 			}
-		}
-
-		if ip.Version == 6 { //debug v6
-			log.Printf("ip version %d --- GetNextProto: %d", ip.Version, ip.GetNextProto())
 		}
 
 		switch ip.GetNextProto() {
