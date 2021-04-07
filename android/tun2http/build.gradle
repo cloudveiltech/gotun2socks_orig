@@ -18,6 +18,8 @@ gobind {
     /* Absolute path to the go binary */
     GO = "c:/Go"
     GOMOBILEFLAGS = "-ldflags=\"-s -w\""
+
+
 //    GOMOBILEFLAGS = org.golang.mobile.bind
 //    "-gcflags=\"-v\""
 

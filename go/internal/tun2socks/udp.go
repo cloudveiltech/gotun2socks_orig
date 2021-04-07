@@ -175,7 +175,7 @@ func (ut *udpConnTrack) send(data []byte) {
 	}
 }
 
-func dialUdpTransparent(address string) (conn *gosocks.SocksConn, err error) {	
+func dialUdpTransparent(address string) (conn *gosocks.SocksConn, err error) {
 	c, err := net.DialTimeout("udp", address, time.Second)
 	if err != nil {
 		log.Printf("Error dial udp: %s", err)

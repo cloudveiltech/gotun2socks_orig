@@ -28,12 +28,12 @@ var (
 			UserName: "cloudveilsocks",
 			Password: "cloudveilsocks",
 		},
-		Timeout: time.Second,
+		Timeout: 10 * time.Second,
 	}
 
 	directDialer *gosocks.SocksDialer = &gosocks.SocksDialer{
 		Auth:    &gosocks.HttpAuthenticator{},
-		Timeout: time.Second,
+		Timeout: 10 * time.Second,
 	}
 
 	privateIPBlocks []*net.IPNet
@@ -231,7 +231,7 @@ func (t2s *Tun2Socks) Run() {
 				break
 			}
 
-			time.Sleep(1000 * time.Millisecond)
+			time.Sleep(15000 * time.Millisecond)
 
 			debug.FreeOSMemory()
 			log.Printf("Conn size tcp %d udp %d, routines %d", len(t2s.tcpConnTrackMap), len(t2s.udpConnTrackMap), runtime.NumGoroutine())

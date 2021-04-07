@@ -43,7 +43,7 @@ func initGoProxy() {
 		proxy.ServeHTTP(w, req)
 	})
 
-	proxy.OnRequest().HandleConnect(goproxy.AlwaysMitm)
+	//proxy.OnRequest().HandleConnect(goproxy.AlwaysMitm)
 
 	if proxy.Verbose {
 		log.Printf("Server inited")

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -40,7 +41,7 @@ const (
 	CONNECT_SENT        = 0
 	CONNECT_ESTABLISHED = 1
 
-	TIMEOUT    = 30 * time.Second
+	TIMEOUT    = 10 * time.Second
 	ACTTIMEOUT = 10 * time.Millisecond
 )
 
@@ -635,13 +636,8 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 			atomic.StoreInt32(&tt.recvWindow, wnd)
 
 			releaseTCPPacket(pkt)
-		default:
-			if tt.t2s.stopped || tt.destroyed {
-				log.Print("Writer exit routine")
-				return
-			}
 		}
-
+		runtime.Gosched()
 		tcpReadWriteTaskPool.SubmitAsyncTask(writerFunc)
 	}
 	tcpReadWriteTaskPool.SubmitAsyncTask(writerFunc)
@@ -704,11 +700,12 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 				}
 			}
 			tt.recvWndCond.Broadcast()
+			runtime.Gosched()
 		}
 
 		tt.recvWndCond.Broadcast()
+		closeCh <- true
 		if !tt.destroyed {
-			closeCh <- true
 			close(closeCh)
 		}
 		log.Print("Reader exit routine")
@@ -980,15 +977,12 @@ func (tt *tcpConnTrack) run() {
 				tt.socksConn.Close()
 			}
 			return
-
-		default:
-			defaultRun = true
 		}
 
 		if !defaultRun && ackTimer != nil {
 			ackTimer.Stop()
 		}
-
+		runtime.Gosched()
 		tcpTrackRunTaskPool.SubmitAsyncTask(runFunc)
 	}
 	tcpTrackRunTaskPool.SubmitAsyncTask(runFunc)

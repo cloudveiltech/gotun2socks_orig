@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 	"runtime"
 	"runtime/debug"
+	"runtime/pprof"
 	"strings"
 
 	"github.com/dkwiebe/gotun2socks/internal/tun"
@@ -46,9 +48,14 @@ var dnsIp net.IP
 var callback *Callbacks = nil
 var customDialer net.Dialer
 var proxyServerMap map[int]*tun2socks.ProxyServer
+var logFileHandle *os.File
 
 func SayHi() string {
 	return "hi from tun2http!"
+}
+
+func ResetProxyServersMap() {
+	proxyServerMap = make(map[int]*tun2socks.ProxyServer)
 }
 
 func AddProxyServer(uid int, ipPort string, proxyType int, httpAuthHeader string, login string, password string) {
@@ -111,11 +118,13 @@ func SetDnsServer(server string, port int) {
 	}
 }
 
-func Run(descriptor int, maxCpus int, startLocalServer bool, certPath, certKeyPath string) {
+func Run(descriptor int, maxCpus int, startLocalServer bool, certPath, certKeyPath string, logPath string) {
 	if !startLocalServer {
 		log.Printf("Setting max cpus to %d", maxCpus)
 		runtime.GOMAXPROCS(maxCpus)
 	}
+
+	setupLogger(logPath)
 
 	var tunAddr string = "10.253.253.253"
 	var tunGW string = "10.0.0.1"
@@ -163,15 +172,28 @@ func Run(descriptor int, maxCpus int, startLocalServer bool, certPath, certKeyPa
 	}()*/
 }
 
+func setupLogger(logPath string) {
+	logFileHandle, err := os.OpenFile(logPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		log.Printf("error opening log file: %v", err)
+	} else {
+		log.SetOutput(logFileHandle)
+	}
+	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
+}
+
 func Stop() {
 	tun2SocksInstance.Stop()
 	stopGoProxyServer()
+	if logFileHandle != nil {
+		logFileHandle.Close()
+	}
 }
 
 func Prof() {
-	//pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
-	runtime.GC()
-	debug.FreeOSMemory()
+	pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
+	//	runtime.GC()
+	//	debug.FreeOSMemory()
 }
 
 func customDNSDialer(ctx context.Context, network, address string) (net.Conn, error) {
