@@ -118,10 +118,14 @@ func SetDnsServer(server string, port int) {
 	}
 }
 
+func SetMaxCpus(maxCpus int) {
+	log.Printf("Setting max cpus to %d", maxCpus)
+	runtime.GOMAXPROCS(maxCpus)
+}
+
 func Run(descriptor int, maxCpus int, startLocalServer bool, certPath, certKeyPath string, logPath string) {
 	if !startLocalServer {
-		log.Printf("Setting max cpus to %d", maxCpus)
-		runtime.GOMAXPROCS(maxCpus)
+		SetMaxCpus(maxCpus)
 	}
 
 	setupLogger(logPath)
