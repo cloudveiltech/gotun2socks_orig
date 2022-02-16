@@ -119,7 +119,6 @@ func (t2s *Tun2Socks) FindAppUid(sourceIp string, sourcePort uint16, destIp stri
 		destIp = strings.ToLower(expandIPv6(destIp))
 	}
 	if lines == nil {
-		//	log.Printf("UID for TCP request from %s:%d to %s:%d is -1 No tcp data ", sourceIp, sourcePort, destIp, destPort)
 		return -1
 	}
 	for _, line := range lines {
@@ -139,13 +138,10 @@ func (t2s *Tun2Socks) FindAppUid(sourceIp string, sourcePort uint16, destIp stri
 			if sIp == sourceIp && destIp == dIp {
 				uid, err := strconv.Atoi(lineArray[7])
 				if err == nil {
-					//log.Printf("UID for TCP from %s:%d to %s:%d is %d", sourceIp, sourcePort, destIp, destPort, uid)
 					return uid
 				}
 			}
 		}
 	}
-
-	//log.Printf("UID for TCP request from %s:%d to %s:%d is -1", sourceIp, sourcePort, destIp, destPort)
 	return -1
 }

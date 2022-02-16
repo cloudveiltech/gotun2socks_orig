@@ -110,7 +110,6 @@ func isPrivate(ip net.IP) bool {
 }
 
 func dialLocalSocks(proxyServer *ProxyServer) (*gosocks.SocksConn, error) {
-	log.Print("dialLocalSocks")
 	localSocksDialer.Auth = &gosocks.UserNamePasswordClientAuthenticator{
 		UserName: proxyServer.Login,
 		Password: proxyServer.Password,
@@ -181,7 +180,6 @@ func (t2s *Tun2Socks) Stop() {
 
 	t2s.stopped = true
 	//t2s.wg.Wait()
-	log.Print("Stop")
 }
 
 func (t2s *Tun2Socks) Run() {
@@ -241,6 +239,7 @@ func (t2s *Tun2Socks) Run() {
 
 	t2s.wg.Add(1)
 	defer t2s.wg.Done()
+
 	for {
 		n, e := t2s.dev.Read(buf[:])
 
@@ -296,8 +295,6 @@ func (t2s *Tun2Socks) Run() {
 			t2s.udp(data, &ip, &udp)
 		default:
 			// Unsupported packets
-			log.Printf("Unsupported packet protocol %d", ip.GetNextProto())
-
 		}
 	}
 }

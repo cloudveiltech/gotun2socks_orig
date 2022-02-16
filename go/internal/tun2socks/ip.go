@@ -1,7 +1,6 @@
 package tun2socks
 
 import (
-	"log"
 	"net"
 
 	"github.com/dkwiebe/gotun2socks/internal/packet"
@@ -28,7 +27,6 @@ func procFragment(ip *packet.Ip, raw []byte) (bool, *packet.Ip, []byte) {
 			return false, nil, nil
 		}
 		// first
-		log.Printf("first fragment of IPID %d", ip.V4.Id)
 		dup := make([]byte, len(raw))
 		copy(dup, raw)
 		clone := &packet.Ip{}
@@ -44,10 +42,7 @@ func procFragment(ip *packet.Ip, raw []byte) (bool, *packet.Ip, []byte) {
 
 		last := false
 		if ip.V4.Flags&0x1 == 0 {
-			log.Printf("last fragment of IPID %d", ip.V4.Id)
 			last = true
-		} else {
-			log.Printf("continue fragment of IPID %d", ip.V4.Id)
 		}
 
 		return last, exist.ip, exist.wire

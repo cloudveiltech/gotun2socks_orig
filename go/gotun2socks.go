@@ -13,6 +13,7 @@ import (
 
 	"github.com/dkwiebe/gotun2socks/internal/tun"
 	"github.com/dkwiebe/gotun2socks/internal/tun2socks"
+	"gopkg.in/natefinch/lumberjack.v2"
 
 	_ "net/http/pprof"
 )
@@ -76,7 +77,6 @@ func AddProxyServer(uid int, ipPort string, proxyType int, httpAuthHeader string
 	}
 
 	proxyServerMap[uid] = proxy
-	log.Printf("Set proxy for uid %d", uid)
 }
 
 func SetDefaultProxy(ipPort string, proxyType int, httpAuthHeader string, login string, password string) {
@@ -91,7 +91,6 @@ func SetDefaultProxy(ipPort string, proxyType int, httpAuthHeader string, login 
 		Login:      login,
 		Password:   password,
 	}
-	log.Printf("Set default proxy")
 }
 
 func SetUidCallback(javaCallback JavaUidCallback) {
@@ -176,13 +175,14 @@ func Run(descriptor int, maxCpus int, startLocalServer bool, certPath, certKeyPa
 	}()*/
 }
 
-func setupLogger(logPath string) {
-	logFileHandle, err := os.OpenFile(logPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		log.Printf("error opening log file: %v", err)
-	} else {
-		log.SetOutput(logFileHandle)
-	}
+func setupLogger(logFile string) {
+	log.SetOutput(&lumberjack.Logger{
+		Filename:   logFile,
+		MaxSize:    5, // megabytes
+		MaxBackups: 3,
+		MaxAge:     30, //days
+	})
+
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 }
 

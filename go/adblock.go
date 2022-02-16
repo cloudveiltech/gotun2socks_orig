@@ -104,7 +104,6 @@ func (am *AdBlockMatcher) TestUrlBlocked(url string, host string, referer string
 	if v, ok := lruCache.Get(cacheKey); ok {
 		item := v.(cacheItem)
 
-		log.Printf("Cache hit: %s %d", url, item.matchType)
 		return item.category, item.matchType
 	}
 	res1, res2 := am.matchRulesCategories(am.MatcherCategories, url, host, referer)

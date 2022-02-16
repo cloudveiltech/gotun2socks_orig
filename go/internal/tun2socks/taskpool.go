@@ -1,7 +1,6 @@
 package tun2socks
 
 import (
-	"log"
 	"sync/atomic"
 )
 
@@ -31,7 +30,6 @@ func (pool *taskPool) SubmitAsyncTask(task func()) {
 
 func (pool *taskPool) worker() {
 	atomic.StoreInt32(&pool.running, 1)
-	log.Print("Pool worker start")
 	for {
 		select {
 		case task := <-pool.taskChannel:

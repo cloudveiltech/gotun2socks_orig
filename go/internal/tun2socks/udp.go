@@ -273,7 +273,6 @@ func (ut *udpConnTrack) run() {
 				// DNS-without-fragment only has one request-response
 				//	end := time.Now()
 				//	ms := end.Sub(start).Nanoseconds() / 1000000
-				//log.Printf("DNS session response received: %d ms ", ms)
 				if ut.remoteIP.To4() != nil {
 					if ut.t2s.cache != nil {
 						ut.t2s.cache.store(pkt.Data)
@@ -345,7 +344,6 @@ func (ut *udpConnTrack) newPacket(pkt *udpPacket) {
 	case <-ut.quitByOther:
 	case <-ut.quitBySelf:
 	case ut.fromTunCh <- pkt:
-		//	log.Printf("--> [UDP][%s]", ut.id)
 	}
 }
 
@@ -405,8 +403,6 @@ func (t2s *Tun2Socks) udp(raw []byte, ip *packet.Ip, udp *packet.UDP) {
 		if answer != nil {
 			data, e := answer.PackBuffer(buf[:])
 			if e == nil {
-				log.Printf("UDP: Cache hit")
-
 				resp, fragments := responsePacket(ip.Src, ip.Dst, udp.SrcPort, udp.DstPort, data)
 				go func(first *udpPacket, frags []*ipPacket) {
 					t2s.writeCh <- first

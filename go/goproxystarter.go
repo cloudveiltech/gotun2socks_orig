@@ -44,10 +44,6 @@ func initGoProxy() {
 	})
 
 	//proxy.OnRequest().HandleConnect(goproxy.AlwaysMitm)
-
-	if proxy.Verbose {
-		log.Printf("Server inited")
-	}
 }
 
 func dialRemote(req *http.Request) net.Conn {
@@ -165,10 +161,6 @@ func startGoProxyServer(certPath, certKeyPath string) {
 
 	if proxy == nil {
 		return
-	}
-
-	if proxy.Verbose {
-		log.Printf("Server is about to start")
 	}
 
 	server = startHttpServer()

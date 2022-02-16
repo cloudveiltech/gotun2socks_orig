@@ -43,12 +43,10 @@ func setCA(caCert, caKey []byte) error {
 	goproxyCa, err := tls.X509KeyPair(caCert, caKey)
 	if err != nil {
 		log.Printf("Can't load cert/key file")
-		log.Fatal(err)
 		return err
 	}
 	if goproxyCa.Leaf, err = x509.ParseCertificate(goproxyCa.Certificate[0]); err != nil {
 		log.Printf("Can't parse cert key/file")
-		log.Fatal(err)
 		return err
 	}
 	goproxy.GoproxyCa = goproxyCa
