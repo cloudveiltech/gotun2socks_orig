@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,7 +15,7 @@ import (
 )
 
 type tcpPacket struct {
-	ip     *packet.IPv4
+	ip     *packet.Ip
 	tcp    *packet.TCP
 	mtuBuf []byte
 	wire   []byte
@@ -40,7 +41,7 @@ const (
 	CONNECT_SENT        = 0
 	CONNECT_ESTABLISHED = 1
 
-	TIMEOUT    = 30 * time.Second
+	TIMEOUT    = 10 * time.Second
 	ACTTIMEOUT = 10 * time.Millisecond
 )
 
@@ -93,6 +94,9 @@ var (
 			return &tcpPacket{}
 		},
 	}
+
+	tcpTrackRunTaskPool  *taskPool = makeTaskPool()
+	tcpReadWriteTaskPool *taskPool = makeTaskPool()
 )
 
 func tcpflagsString(tcp *packet.TCP) string {
@@ -151,7 +155,7 @@ func newTCPPacket() *tcpPacket {
 }
 
 func releaseTCPPacket(pkt *tcpPacket) {
-	packet.ReleaseIPv4(pkt.ip)
+	packet.ReleaseIP(pkt.ip)
 	packet.ReleaseTCP(pkt.tcp)
 	if pkt.mtuBuf != nil {
 		releaseBuffer(pkt.mtuBuf)
@@ -161,8 +165,8 @@ func releaseTCPPacket(pkt *tcpPacket) {
 	tcpPacketPool.Put(pkt)
 }
 
-func copyTCPPacket(raw []byte, ip *packet.IPv4, tcp *packet.TCP) *tcpPacket {
-	iphdr := packet.NewIPv4()
+func copyTCPPacket(raw []byte, ip *packet.Ip, tcp *packet.TCP) *tcpPacket {
+	iphdr := packet.NewIP()
 	tcphdr := packet.NewTCP()
 	pkt := newTCPPacket()
 
@@ -176,7 +180,7 @@ func copyTCPPacket(raw []byte, ip *packet.IPv4, tcp *packet.TCP) *tcpPacket {
 	}
 	n := copy(buf, raw)
 	pkt.wire = buf[:n]
-	packet.ParseIPv4(pkt.wire, iphdr)
+	packet.ParseIp(pkt.wire, iphdr)
 	packet.ParseTCP(iphdr.Payload, tcphdr)
 	pkt.ip = iphdr
 	pkt.tcp = tcphdr
@@ -184,51 +188,68 @@ func copyTCPPacket(raw []byte, ip *packet.IPv4, tcp *packet.TCP) *tcpPacket {
 	return pkt
 }
 
-func tcpConnID(ip *packet.IPv4, tcp *packet.TCP) string {
+func tcpConnID(ip *packet.Ip, tcp *packet.TCP) string {
 	//	uid := FindAppUid(ip.SrcIP.String(), tcp.SrcPort, ip.DstIP.String(), tcp.DstPort)
 	return strings.Join([]string{
-		ip.SrcIP.String(),
+		ip.Src.String(),
 		fmt.Sprintf("%d", tcp.SrcPort),
-		ip.DstIP.String(),
+		ip.Dst.String(),
 		fmt.Sprintf("%d", tcp.DstPort),
 	}, "|")
 }
 
-func packTCP(ip *packet.IPv4, tcp *packet.TCP) *tcpPacket {
+func packTCP(ip *packet.Ip, tcp *packet.TCP) *tcpPacket {
 	pkt := newTCPPacket()
 	pkt.ip = ip
 	pkt.tcp = tcp
 
-	buf := newBuffer()
-	pkt.mtuBuf = buf
-
-	payloadL := len(tcp.Payload)
-	payloadStart := MTU - payloadL
-	if payloadL != 0 {
-		copy(pkt.mtuBuf[payloadStart:], tcp.Payload)
-	}
-	tcpHL := tcp.HeaderLength()
-	tcpStart := payloadStart - tcpHL
-	pseduoStart := tcpStart - packet.IPv4_PSEUDO_LENGTH
-	ip.PseudoHeader(pkt.mtuBuf[pseduoStart:tcpStart], packet.IPProtocolTCP, tcpHL+payloadL)
-	tcp.Serialize(pkt.mtuBuf[tcpStart:payloadStart], pkt.mtuBuf[pseduoStart:])
-	ipHL := ip.HeaderLength()
-	ipStart := tcpStart - ipHL
-	ip.Serialize(pkt.mtuBuf[ipStart:tcpStart], tcpHL+payloadL)
-	pkt.wire = pkt.mtuBuf[ipStart:]
+	pkt.mtuBuf = nil
 	return pkt
 }
 
+func (pkt *tcpPacket) packTcpIntoBuff(buf []byte) int {
+	pkt.mtuBuf = nil
+
+	ip := pkt.ip
+	tcp := pkt.tcp
+
+	payloadL := len(tcp.Payload)
+	payloadStart := len(buf) - payloadL
+	if payloadL != 0 {
+		copy(buf[payloadStart:], tcp.Payload)
+	}
+	tcpHL := tcp.HeaderLength()
+	tcpStart := payloadStart - tcpHL
+
+	pseduoStart := tcpStart - packet.IP4_PSEUDO_LENGTH
+	if ip.Version == 6 {
+		pseduoStart = tcpStart - packet.IP6_PSEUDO_LENGTH
+	}
+
+	ip.PseudoHeader(buf[pseduoStart:tcpStart], packet.IPProtocolTCP, tcpHL+payloadL)
+	tcp.Serialize(buf[tcpStart:payloadStart], buf[pseduoStart:])
+	ipHL := ip.HeaderLength()
+	ipStart := tcpStart - ipHL
+	ip.Serialize(buf[ipStart:tcpStart], tcpHL+payloadL)
+	return ipStart
+}
+
 func rst(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, seq uint32, ack uint32, payloadLen uint32) *tcpPacket {
-	iphdr := packet.NewIPv4()
 	tcphdr := packet.NewTCP()
 
-	iphdr.Version = 4
-	iphdr.Id = packet.IPID()
-	iphdr.DstIP = srcIP
-	iphdr.SrcIP = dstIP
-	iphdr.TTL = 64
-	iphdr.Protocol = packet.IPProtocolTCP
+	var iphdr *packet.Ip
+	if srcIP.To4() != nil {
+		iphdr = packet.NewIP4()
+		iphdr.V4.Id = packet.IPID()
+	} else {
+		iphdr = packet.NewIP6()
+	}
+
+	iphdr.SetHopLimit(64)
+	iphdr.SetNextProto(packet.IPProtocolTCP)
+
+	iphdr.Dst = srcIP
+	iphdr.Src = dstIP
 
 	tcphdr.DstPort = srcPort
 	tcphdr.SrcPort = dstPort
@@ -254,28 +275,20 @@ func rst(srcIP net.IP, dstIP net.IP, srcPort uint16, dstPort uint16, seq uint32,
 }
 
 func rstByPacket(pkt *tcpPacket) *tcpPacket {
-	return rst(pkt.ip.SrcIP, pkt.ip.DstIP, pkt.tcp.SrcPort, pkt.tcp.DstPort, pkt.tcp.Seq, pkt.tcp.Ack, uint32(len(pkt.tcp.Payload)))
+	return rst(pkt.ip.Src, pkt.ip.Dst, pkt.tcp.SrcPort, pkt.tcp.DstPort, pkt.tcp.Seq, pkt.tcp.Ack, uint32(len(pkt.tcp.Payload)))
 }
 
 func (tt *tcpConnTrack) changeState(nxt tcpState) {
-	// log.Printf("### [%s -> %s]", tcpstateString(tt.state), tcpstateString(nxt))
 	tt.state = nxt
 }
 
 func (tt *tcpConnTrack) validAck(pkt *tcpPacket) bool {
 	ret := (pkt.tcp.Ack == tt.nxtSeq)
-	if !ret {
-		// log.Printf("WARNING: invalid ack: recvd: %d, expecting: %d", pkt.tcp.Ack, tt.nxtSeq)
-	}
 	return ret
 }
 
 func (tt *tcpConnTrack) validSeq(pkt *tcpPacket) bool {
 	ret := (pkt.tcp.Seq == tt.rcvNxtSeq)
-	if !ret {
-		// log.Printf("WARNING: invalid seq: recvd: %d, expecting: %d", pkt.tcp.Seq, tt.rcvNxtSeq)
-
-	}
 	return ret
 }
 
@@ -300,7 +313,6 @@ func (tt *tcpConnTrack) relayPayload(pkt *tcpPacket) bool {
 }
 
 func (tt *tcpConnTrack) send(pkt *tcpPacket) {
-	// log.Printf("<-- [TCP][%s][%s][seq:%d][ack:%d][payload:%d]", tt.id, tcpflagsString(pkt.tcp), pkt.tcp.Seq, pkt.tcp.Ack, len(pkt.tcp.Payload))
 	if pkt.tcp.ACK {
 		tt.lastAck = pkt.tcp.Ack
 	}
@@ -308,15 +320,21 @@ func (tt *tcpConnTrack) send(pkt *tcpPacket) {
 }
 
 func (tt *tcpConnTrack) synAck(syn *tcpPacket) {
-	iphdr := packet.NewIPv4()
 	tcphdr := packet.NewTCP()
 
-	iphdr.Version = 4
-	iphdr.Id = packet.IPID()
-	iphdr.SrcIP = tt.remoteIP
-	iphdr.DstIP = tt.localIP
-	iphdr.TTL = 64
-	iphdr.Protocol = packet.IPProtocolTCP
+	var iphdr *packet.Ip
+	if tt.remoteIP.To4() != nil {
+		iphdr = packet.NewIP4()
+		iphdr.V4.Id = packet.IPID()
+	} else {
+		iphdr = packet.NewIP6()
+	}
+
+	iphdr.Src = tt.remoteIP
+	iphdr.Dst = tt.localIP
+
+	iphdr.SetHopLimit(64)
+	iphdr.SetNextProto(packet.IPProtocolTCP)
 
 	tcphdr.SrcPort = tt.remotePort
 	tcphdr.DstPort = tt.localPort
@@ -335,15 +353,21 @@ func (tt *tcpConnTrack) synAck(syn *tcpPacket) {
 }
 
 func (tt *tcpConnTrack) finAck() {
-	iphdr := packet.NewIPv4()
 	tcphdr := packet.NewTCP()
 
-	iphdr.Version = 4
-	iphdr.Id = packet.IPID()
-	iphdr.SrcIP = tt.remoteIP
-	iphdr.DstIP = tt.localIP
-	iphdr.TTL = 64
-	iphdr.Protocol = packet.IPProtocolTCP
+	var iphdr *packet.Ip
+	if tt.remoteIP.To4() != nil {
+		iphdr = packet.NewIP4()
+		iphdr.V4.Id = packet.IPID()
+	} else {
+		iphdr = packet.NewIP6()
+	}
+
+	iphdr.Src = tt.remoteIP
+	iphdr.Dst = tt.localIP
+
+	iphdr.SetHopLimit(64)
+	iphdr.SetNextProto(packet.IPProtocolTCP)
 
 	tcphdr.SrcPort = tt.remotePort
 	tcphdr.DstPort = tt.localPort
@@ -360,15 +384,21 @@ func (tt *tcpConnTrack) finAck() {
 }
 
 func (tt *tcpConnTrack) ack() {
-	iphdr := packet.NewIPv4()
 	tcphdr := packet.NewTCP()
 
-	iphdr.Version = 4
-	iphdr.Id = packet.IPID()
-	iphdr.SrcIP = tt.remoteIP
-	iphdr.DstIP = tt.localIP
-	iphdr.TTL = 64
-	iphdr.Protocol = packet.IPProtocolTCP
+	var iphdr *packet.Ip
+	if tt.remoteIP.To4() != nil {
+		iphdr = packet.NewIP4()
+		iphdr.V4.Id = packet.IPID()
+	} else {
+		iphdr = packet.NewIP6()
+	}
+
+	iphdr.Src = tt.remoteIP
+	iphdr.Dst = tt.localIP
+
+	iphdr.SetHopLimit(64)
+	iphdr.SetNextProto(packet.IPProtocolTCP)
 
 	tcphdr.SrcPort = tt.remotePort
 	tcphdr.DstPort = tt.localPort
@@ -382,15 +412,21 @@ func (tt *tcpConnTrack) ack() {
 }
 
 func (tt *tcpConnTrack) payload(data []byte) {
-	iphdr := packet.NewIPv4()
 	tcphdr := packet.NewTCP()
 
-	iphdr.Version = 4
-	iphdr.Id = packet.IPID()
-	iphdr.SrcIP = tt.remoteIP
-	iphdr.DstIP = tt.localIP
-	iphdr.TTL = 64
-	iphdr.Protocol = packet.IPProtocolTCP
+	var iphdr *packet.Ip
+	if tt.remoteIP.To4() != nil {
+		iphdr = packet.NewIP4()
+		iphdr.V4.Id = packet.IPID()
+	} else {
+		iphdr = packet.NewIP6()
+	}
+
+	iphdr.Src = tt.remoteIP
+	iphdr.Dst = tt.localIP
+
+	iphdr.SetHopLimit(64)
+	iphdr.SetNextProto(packet.IPProtocolTCP)
 
 	tcphdr.SrcPort = tt.remotePort
 	tcphdr.DstPort = tt.localPort
@@ -412,9 +448,15 @@ func (tt *tcpConnTrack) payload(data []byte) {
 func (tt *tcpConnTrack) stateClosed(syn *tcpPacket) (continu bool, release bool) {
 	var e error
 
+	var remoteIpPort string
+	if tt.remoteIP.To4() != nil {
+		remoteIpPort = fmt.Sprintf("%s:%d", tt.remoteIP.String(), tt.remotePort)
+	} else {
+		remoteIpPort = fmt.Sprintf("[%s]:%d", tt.remoteIP.String(), tt.remotePort)
+	}
+
 	if !isPrivate(tt.remoteIP) && (tt.remotePort == 80 || tt.remotePort == 443) {
 		if tt.uid == -1 {
-			log.Printf("initiating connection, loading uid and proxy")
 			uid := tt.t2s.FindAppUid(tt.localIP.String(), tt.localPort, tt.remoteIP.String(), tt.remotePort)
 			tt.uid = uid
 			tt.loadProxyConfig()
@@ -425,20 +467,17 @@ func (tt *tcpConnTrack) stateClosed(syn *tcpPacket) (continu bool, release bool)
 		} else if tt.proxyServer.ProxyType == PROXY_TYPE_HTTP {
 			tt.socksConn, e = dialTransaprent(tt.proxyServer.IpAddress)
 			if len(syn.tcp.Hostname) > 0 && tt.proxyServer.ProxyType == PROXY_TYPE_HTTP && tt.remotePort == 443 {
-				log.Print("Connect using state closed")
 				tt.callHttpProxyConnect(tt.socksConn, tt.remoteIP, syn.tcp)
 			}
 		} else {
-			remoteIpPort := fmt.Sprintf("%s:%d", tt.remoteIP.String(), tt.remotePort)
 			tt.socksConn, e = dialTransaprent(remoteIpPort)
 		}
 	} else {
-		remoteIpPort := fmt.Sprintf("%s:%d", tt.remoteIP.String(), tt.remotePort)
 		tt.socksConn, e = dialTransaprent(remoteIpPort)
 	}
 
 	if e != nil {
-		log.Printf("fail to connect SOCKS proxy: %s", e)
+		log.Printf("fail to connect proxy: %s", e)
 		return
 	} else {
 		// no timeout
@@ -448,7 +487,6 @@ func (tt *tcpConnTrack) stateClosed(syn *tcpPacket) (continu bool, release bool)
 	if tt.socksConn == nil || tt.connectState != CONNECT_NOT_SENT {
 		resp := rstByPacket(syn)
 		tt.toTunCh <- resp.wire
-		// log.Printf("<-- [TCP][%s][RST]", tt.id)
 		return false, true
 	}
 
@@ -492,13 +530,11 @@ func (tt *tcpConnTrack) callSocks(dstIP net.IP, dstPort uint16, conn net.Conn, c
 }
 
 func (tt *tcpConnTrack) callHttpProxyConnect(conn net.Conn, dstIp net.IP, tcp *packet.TCP) error {
-	//log.Printf("callHttpProxyConnect")
 	//"CONNECT %s:443 HTTP/1.1\r\nProxy-Authorization: Basic %s\r\nConnection: close\r\n\r\n",
 	if len(tcp.Hostname) == 0 {
 		tcp.Hostname = dstIp.String()
 	}
 	connectString := fmt.Sprintf("CONNECT %s:443 HTTP/1.1\r\nProxy-Authorization: Basic %s\r\nConnection: close\r\n\r\n", tcp.Hostname, tt.proxyServer.AuthHeader)
-	//	log.Printf("%s", connectString)
 	_, err := conn.Write([]byte(connectString))
 	if err != nil {
 		log.Println(err)
@@ -509,22 +545,18 @@ func (tt *tcpConnTrack) callHttpProxyConnect(conn net.Conn, dstIp net.IP, tcp *p
 }
 
 func (tt *tcpConnTrack) loadProxyConfig() {
-	log.Printf("loadProxyConfig for uid %d", tt.uid)
-
 	proxyServer, ok := tt.t2s.proxyServerMap[tt.uid]
 	if !ok {
 		tt.proxyServer = tt.t2s.defaultProxyServer
 	} else {
 		tt.proxyServer = proxyServer
 	}
-
 	log.Printf("Proxy selected: address %s, type: %d", tt.proxyServer.IpAddress, tt.proxyServer.ProxyType)
 }
 
 func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn, readCh chan<- []byte, writeCh <-chan *tcpPacket, closeCh chan bool) {
 	if tt.uid == -1 {
 		uid := tt.t2s.FindAppUid(tt.localIP.String(), tt.localPort, dstIP.String(), dstPort)
-		log.Printf("UID for TCP request from %s:%d to %s:%d is %d", tt.localIP.String(), tt.localPort, dstIP.String(), dstPort, uid)
 		tt.uid = uid
 		tt.loadProxyConfig()
 	}
@@ -544,130 +576,132 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 	}
 
 	// writer
-	go func() {
-	loop:
-		for {
-			select {
-			case <-closeCh:
-				break loop
-			case pkt := <-writeCh:
-				if tt.connectState == CONNECT_NOT_SENT {
-					err := tt.callHttpProxyConnect(conn, dstIP, pkt.tcp)
-					if err != nil {
-						log.Printf("Can't send connect request")
-					}
+	var writerFunc func()
+	writerFunc = func() {
+		if tt.t2s.stopped || tt.destroyed {
+			log.Print("Writer exit routine")
+			return
+		}
 
-					tt.connectState = CONNECT_SENT
+		select {
+		case <-closeCh:
+			log.Print("Writer exit routine")
+			return
+		case pkt := <-writeCh:
+			if tt.connectState == CONNECT_NOT_SENT {
+				err := tt.callHttpProxyConnect(conn, dstIP, pkt.tcp)
+				if err != nil {
+					log.Printf("Can't send connect request")
 				}
 
-				if tt.proxyServer.ProxyType == PROXY_TYPE_HTTP {
-					if tt.connectState != CONNECT_ESTABLISHED {
-						tt.recvWndCond.L.Lock()
-						log.Print("Waiting https connect")
-						tt.recvWndCond.Wait()
-						tt.recvWndCond.L.Unlock()
-					}
-
-					if pkt.tcp.DstPort == 443 {
-						conn.Write(pkt.tcp.Payload)
-					} else {
-						conn.Write(pkt.tcp.PatchHostForPlainHttp(tt.proxyServer.AuthHeader))
-					}
-
-				} else {
-					conn.Write(pkt.tcp.Payload)
-				}
-
-				// increase window when processed
-				wnd := atomic.LoadInt32(&tt.recvWindow)
-				wnd += int32(len(pkt.tcp.Payload))
-				if wnd > int32(MAX_RECV_WINDOW) {
-					wnd = int32(MAX_RECV_WINDOW)
-				}
-				atomic.StoreInt32(&tt.recvWindow, wnd)
-
-				releaseTCPPacket(pkt)
-			default:
-				if tt.t2s.stopped || tt.destroyed {
-					break loop
-				}
-				time.Sleep(10 * time.Millisecond)
+				tt.connectState = CONNECT_SENT
 			}
 
+			if tt.proxyServer.ProxyType == PROXY_TYPE_HTTP {
+				if tt.connectState != CONNECT_ESTABLISHED {
+					tt.recvWndCond.L.Lock()
+					tt.recvWndCond.Wait()
+					tt.recvWndCond.L.Unlock()
+				}
+
+				if pkt.tcp.DstPort == 443 {
+					conn.Write(pkt.tcp.Payload)
+				} else {
+					conn.Write(pkt.tcp.PatchHostForPlainHttp(tt.proxyServer.AuthHeader))
+				}
+
+			} else {
+				conn.Write(pkt.tcp.Payload)
+			}
+
+			// increase window when processed
+			wnd := atomic.LoadInt32(&tt.recvWindow)
+			wnd += int32(len(pkt.tcp.Payload))
+			if wnd > int32(MAX_RECV_WINDOW) {
+				wnd = int32(MAX_RECV_WINDOW)
+			}
+			atomic.StoreInt32(&tt.recvWindow, wnd)
+
+			releaseTCPPacket(pkt)
 		}
-		log.Print("Writer exit routine")
-	}()
+		runtime.Gosched()
+		tcpReadWriteTaskPool.SubmitAsyncTask(writerFunc)
+	}
+	tcpReadWriteTaskPool.SubmitAsyncTask(writerFunc)
 
 	// reader
-	for {
-		if tt.t2s.stopped || tt.destroyed {
-			break
-		}
-
+	var readerFunc func()
+	readerFunc = func() {
 		var buf [MTU - 40]byte
-
-		// tt.sendWndCond.L.Lock()
-		var wnd int32
-		var cur int32
-		wnd = atomic.LoadInt32(&tt.sendWindow)
-
-		if wnd <= 0 {
-			for wnd <= 0 {
-				tt.sendWndCond.L.Lock()
-				tt.sendWndCond.Wait()
-				wnd = atomic.LoadInt32(&tt.sendWindow)
-			}
-			tt.sendWndCond.L.Unlock()
-		}
-
-		cur = wnd
-		if cur > MTU-40 {
-			cur = MTU - 40
-		}
-		// tt.sendWndCond.L.Unlock()
-		if tt.connectState == CONNECT_SENT {
-			conn.Read(buf[:])
-			log.Print("Reading connect")
-			tt.connectState = CONNECT_ESTABLISHED
-			tt.recvWndCond.Broadcast()
-		} else if tt.connectState == CONNECT_ESTABLISHED {
-			n, e := conn.Read(buf[:cur])
-
-			if n > 0 {
-				b := make([]byte, n)
-				copy(b, buf[:n])
-				readCh <- b
-
-				// tt.sendWndCond.L.Lock()
-				nxt := wnd - int32(n)
-				if nxt < 0 {
-					nxt = 0
-				}
-				// if sendWindow does not equal to wnd, it is already updated by a
-				// received pkt from TUN
-				atomic.CompareAndSwapInt32(&tt.sendWindow, wnd, nxt)
-				// tt.sendWndCond.L.Unlock()
-			}
-
-			if e != nil {
-				log.Printf("error to read from socks: %s", e)
+		for {
+			if tt.t2s.stopped || tt.destroyed {
 				break
 			}
+
+			// tt.sendWndCond.L.Lock()
+			var wnd int32
+			var cur int32
+			wnd = atomic.LoadInt32(&tt.sendWindow)
+
+			if wnd <= 0 {
+				for wnd <= 0 {
+					tt.sendWndCond.L.Lock()
+					tt.sendWndCond.Wait()
+					wnd = atomic.LoadInt32(&tt.sendWindow)
+				}
+				tt.sendWndCond.L.Unlock()
+			}
+
+			cur = wnd
+			if cur > MTU-40 {
+				cur = MTU - 40
+			}
+			// tt.sendWndCond.L.Unlock()
+			if tt.connectState == CONNECT_SENT {
+				conn.Read(buf[:])
+				tt.connectState = CONNECT_ESTABLISHED
+				tt.recvWndCond.Broadcast()
+			} else if tt.connectState == CONNECT_ESTABLISHED {
+				n, e := conn.Read(buf[:cur])
+
+				if n > 0 {
+					b := make([]byte, n)
+					copy(b, buf[:n])
+					readCh <- b
+
+					// tt.sendWndCond.L.Lock()
+					nxt := wnd - int32(n)
+					if nxt < 0 {
+						nxt = 0
+					}
+					// if sendWindow does not equal to wnd, it is already updated by a
+					// received pkt from TUN
+					atomic.CompareAndSwapInt32(&tt.sendWindow, wnd, nxt)
+					// tt.sendWndCond.L.Unlock()
+				}
+
+				if e != nil {
+					log.Printf("error to read from socks: %s", e)
+					break
+				}
+			}
+			tt.recvWndCond.Broadcast()
+			runtime.Gosched()
 		}
+
 		tt.recvWndCond.Broadcast()
+		closeCh <- true
+		if !tt.destroyed {
+			close(closeCh)
+		}
+		log.Print("Reader exit routine")
 	}
 
-	tt.recvWndCond.Broadcast()
-	if !tt.destroyed {
-		closeCh <- true
-		close(closeCh)
-	}
-	log.Print("Reader exit routine")
+	go readerFunc()
 }
 
 // stateSynRcvd expects a ACK with matching ack number,
 func (tt *tcpConnTrack) stateSynRcvd(pkt *tcpPacket) (continu bool, release bool) {
-	//log.Print("stateSynRcvd")
 	// rst to packet with invalid sequence/ack, state unchanged
 	if !(tt.validSeq(pkt) && tt.validAck(pkt)) {
 		if !pkt.tcp.RST {
@@ -689,7 +723,10 @@ func (tt *tcpConnTrack) stateSynRcvd(pkt *tcpPacket) (continu bool, release bool
 	continu = true
 	release = true
 	tt.changeState(ESTABLISHED)
-	go tt.tcpSocks2Tun(tt.remoteIP, uint16(tt.remotePort), tt.socksConn, tt.fromSocksCh, tt.toSocksCh, tt.socksCloseCh)
+	tcpReadWriteTaskPool.SubmitAsyncTask(func() {
+		tt.tcpSocks2Tun(tt.remoteIP, uint16(tt.remotePort), tt.socksConn, tt.fromSocksCh, tt.toSocksCh, tt.socksCloseCh)
+	})
+
 	if len(pkt.tcp.Payload) != 0 {
 		if tt.relayPayload(pkt) {
 			// pkt hands to socks writer
@@ -708,12 +745,10 @@ func (tt *tcpConnTrack) stateEstablished(pkt *tcpPacket) (continu bool, release 
 	}
 	// connection ends by valid RST
 	if pkt.tcp.RST {
-		log.Print("rst")
 		return false, true
 	}
 	// ignore non-ACK packets
 	if !pkt.tcp.ACK {
-		log.Print("ack")
 		return true, true
 	}
 
@@ -735,7 +770,6 @@ func (tt *tcpConnTrack) stateEstablished(pkt *tcpPacket) (continu bool, release 
 }
 
 func (tt *tcpConnTrack) stateFinWait1(pkt *tcpPacket) (continu bool, release bool) {
-	//log.Print("stateFinWait1")
 	// ignore packet with invalid sequence, state unchanged
 	if !tt.validSeq(pkt) {
 		return false, true
@@ -766,7 +800,6 @@ func (tt *tcpConnTrack) stateFinWait1(pkt *tcpPacket) (continu bool, release boo
 }
 
 func (tt *tcpConnTrack) stateFinWait2(pkt *tcpPacket) (continu bool, release bool) {
-	//log.Print("stateFinWait2")
 	// ignore packet with invalid sequence/ack, state unchanged
 	if !(tt.validSeq(pkt) && tt.validAck(pkt)) {
 		return false, true
@@ -786,7 +819,6 @@ func (tt *tcpConnTrack) stateFinWait2(pkt *tcpPacket) (continu bool, release boo
 }
 
 func (tt *tcpConnTrack) stateClosing(pkt *tcpPacket) (continu bool, release bool) {
-	//log.Print("stateClosing")
 	// ignore packet with invalid sequence/ack, state unchanged
 	if !(tt.validSeq(pkt) && tt.validAck(pkt)) {
 		return true, true
@@ -804,7 +836,6 @@ func (tt *tcpConnTrack) stateClosing(pkt *tcpPacket) (continu bool, release bool
 }
 
 func (tt *tcpConnTrack) stateLastAck(pkt *tcpPacket) (continu bool, release bool) {
-	//log.Print("stateLastAck")
 	// ignore packet with invalid sequence/ack, state unchanged
 	if !(tt.validSeq(pkt) && tt.validAck(pkt)) {
 		return true, true
@@ -819,7 +850,6 @@ func (tt *tcpConnTrack) stateLastAck(pkt *tcpPacket) (continu bool, release bool
 }
 
 func (tt *tcpConnTrack) newPacket(pkt *tcpPacket) {
-	//log.Print("newPacket")
 	select {
 	case <-tt.quitByOther:
 	case <-tt.quitBySelf:
@@ -828,7 +858,6 @@ func (tt *tcpConnTrack) newPacket(pkt *tcpPacket) {
 }
 
 func (tt *tcpConnTrack) updateSendWindow(pkt *tcpPacket) {
-	//log.Print("updateSendWindow")
 	// tt.sendWndCond.L.Lock()
 	atomic.StoreInt32(&tt.sendWindow, int32(pkt.tcp.Window))
 	tt.sendWndCond.Signal()
@@ -840,18 +869,18 @@ func (tt *tcpConnTrack) run() {
 	var socksCloseCh chan bool
 	var fromSocksCh chan []byte
 	var ackTimer *time.Timer
-	var timeout *time.Timer = time.NewTimer(30 * time.Second)
 
-	for {
-		timeout.Reset(30 * time.Second)
+	var runFunc func()
 
+	defaultRun := false
+	runFunc = func() {
 		// enable some channels only when the state is ESTABLISHED
-		if tt.state == ESTABLISHED {
+		if tt.state == ESTABLISHED && !defaultRun {
 			socksCloseCh = tt.socksCloseCh
 			fromSocksCh = tt.fromSocksCh
 			if ackTimer == nil {
 				ackTimer = time.NewTimer(10 * time.Millisecond)
-			} else {
+			} else if !defaultRun {
 				ackTimer.Reset(10 * time.Millisecond)
 			}
 			ackTimeout = ackTimer.C
@@ -859,6 +888,7 @@ func (tt *tcpConnTrack) run() {
 				tt.destroyed = true
 			}
 		}
+		defaultRun = false
 
 		if tt.destroyed {
 			if tt.socksConn != nil {
@@ -866,12 +896,12 @@ func (tt *tcpConnTrack) run() {
 			}
 			close(tt.quitBySelf)
 			tt.t2s.clearTCPConnTrack(tt.id)
+			log.Print("Runner exit")
 			return
 		}
 
 		select {
 		case pkt := <-tt.input:
-			// log.Printf("--> [TCP][%s][%s][%s][seq:%d][ack:%d][payload:%d]", tt.id, tcpstateString(tt.state), tcpflagsString(pkt.tcp), pkt.tcp.Seq, pkt.tcp.Ack, len(pkt.tcp.Payload))
 			var continu, release bool
 
 			tt.lastPacketTime = time.Now()
@@ -916,19 +946,9 @@ func (tt *tcpConnTrack) run() {
 		case data := <-fromSocksCh:
 			tt.lastPacketTime = time.Now()
 			tt.payload(data)
-
 		case <-socksCloseCh:
 			tt.finAck()
 			tt.changeState(FIN_WAIT_1)
-
-		case <-timeout.C:
-			if tt.socksConn != nil {
-				tt.socksConn.Close()
-			}
-			close(tt.quitBySelf)
-			tt.t2s.clearTCPConnTrack(tt.id)
-			return
-
 		case <-tt.quitByOther:
 			// who closes this channel should be responsible to clear track map
 			if tt.socksConn != nil {
@@ -936,14 +956,17 @@ func (tt *tcpConnTrack) run() {
 			}
 			return
 		}
-		timeout.Stop()
-		if ackTimer != nil {
+
+		if !defaultRun && ackTimer != nil {
 			ackTimer.Stop()
 		}
+		runtime.Gosched()
+		tcpTrackRunTaskPool.SubmitAsyncTask(runFunc)
 	}
+	tcpTrackRunTaskPool.SubmitAsyncTask(runFunc)
 }
 
-func (t2s *Tun2Socks) createTCPConnTrack(id string, ip *packet.IPv4, tcp *packet.TCP) *tcpConnTrack {
+func (t2s *Tun2Socks) createTCPConnTrack(id string, ip *packet.Ip, tcp *packet.TCP) *tcpConnTrack {
 	t2s.tcpConnTrackLock.Lock()
 	defer t2s.tcpConnTrackLock.Unlock()
 
@@ -971,20 +994,20 @@ func (t2s *Tun2Socks) createTCPConnTrack(id string, ip *packet.IPv4, tcp *packet
 		remotePort: tcp.DstPort,
 		state:      CLOSED,
 
-		uid:         t2s.FindAppUid(ip.SrcIP.String(), tcp.SrcPort, ip.DstIP.String(), tcp.DstPort),
+		uid:         t2s.FindAppUid(ip.Src.String(), tcp.SrcPort, ip.Dst.String(), tcp.DstPort),
 		proxyServer: t2s.defaultProxyServer,
 	}
 
-	track.localIP = make(net.IP, len(ip.SrcIP))
-	copy(track.localIP, ip.SrcIP)
-	track.remoteIP = make(net.IP, len(ip.DstIP))
-	copy(track.remoteIP, ip.DstIP)
+	track.localIP = make(net.IP, len(ip.Src))
+	copy(track.localIP, ip.Src)
+	track.remoteIP = make(net.IP, len(ip.Dst))
+	copy(track.remoteIP, ip.Dst)
 
 	track.loadProxyConfig()
 
 	t2s.tcpConnTrackMap[id] = track
 
-	go track.run()
+	track.run()
 	return track
 }
 
@@ -1008,7 +1031,10 @@ func (t2s *Tun2Socks) clearTCPConnTrack(id string) {
 	delete(t2s.tcpConnTrackMap, id)
 }
 
-func (t2s *Tun2Socks) tcp(raw []byte, ip *packet.IPv4, tcp *packet.TCP) {
+func (t2s *Tun2Socks) tcp(raw []byte, ip *packet.Ip, tcp *packet.TCP) {
+	tcpReadWriteTaskPool.tun2SocksInstance = t2s
+	tcpTrackRunTaskPool.tun2SocksInstance = t2s
+
 	connID := tcpConnID(ip, tcp)
 
 	track := t2s.getTCPConnTrack(connID)
@@ -1023,15 +1049,12 @@ func (t2s *Tun2Socks) tcp(raw []byte, ip *packet.IPv4, tcp *packet.TCP) {
 	} else {
 		// ignore RST, if there is no track of this connection
 		if tcp.RST {
-			// log.Printf("--> [TCP][%s][%s]", connID, tcpflagsString(tcp))
 			return
 		}
 		// return a RST to non-SYN packet
 		if !tcp.SYN {
-			// log.Printf("--> [TCP][%s][%s]", connID, tcpflagsString(tcp))
-			resp := rst(ip.SrcIP, ip.DstIP, tcp.SrcPort, tcp.DstPort, tcp.Seq, tcp.Ack, uint32(len(tcp.Payload)))
+			resp := rst(ip.Src, ip.Dst, tcp.SrcPort, tcp.DstPort, tcp.Seq, tcp.Ack, uint32(len(tcp.Payload)))
 			t2s.writeCh <- resp
-			// log.Printf("<-- [TCP][%s][RST]", connID)
 			return
 		}
 

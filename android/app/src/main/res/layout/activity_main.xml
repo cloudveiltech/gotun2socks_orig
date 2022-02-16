@@ -6,23 +6,66 @@
     android:gravity="center"
     android:orientation="vertical">
 
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="10dp"
+        android:text="Go Proxy Filtering Demo" />
+
+    <TextView
+        android:id="@+id/info"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="10dp"
+        android:text="" />
 
     <Button
         android:id="@+id/start"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="@string/start"/>
+        android:text="@string/start" />
 
     <Button
         android:id="@+id/stop"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="@string/stop"/>
+        android:text="@string/stop" />
+
+
+    <Button
+        android:id="@+id/enable_bypass"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/enable_bypass" />
+
+    <Button
+        android:id="@+id/disable_bypass"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/disable_bypass" />
 
     <Button
         android:id="@+id/prof"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="@string/prof"/>
+        android:text="@string/prof" />
 
+    <Button
+        android:id="@+id/load_rules"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/load_rules_from_local_file" />
+
+    <Button
+        android:id="@+id/save_to_file"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/save_to_file" />
+
+
+    <Button
+        android:id="@+id/load_from_file"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/load_from_file" />
 </LinearLayout>

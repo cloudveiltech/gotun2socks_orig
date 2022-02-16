@@ -35,5 +35,5 @@ func Checksum(fields ...[]byte) uint16 {
 	for csum > 0xffff {
 		csum = (csum >> 16) + (csum & 0xffff)
 	}
-	return ^uint16(csum + (csum >> 16))
+	return ^uint16(csum)
 }

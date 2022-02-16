@@ -16,9 +16,9 @@ const (
 
 	SocksReserved = 0x00
 
-	SocksNoAuthentication    = 0x00
-	SocksAuthMethodUsernamePassword  = 0x02
-	SocksNoAcceptableMethods = 0xFF
+	SocksNoAuthentication           = 0x00
+	SocksAuthMethodUsernamePassword = 0x02
+	SocksNoAcceptableMethods        = 0xFF
 
 	SocksIPv4Host   = 0x01
 	SocksIPv6Host   = 0x04
@@ -109,10 +109,10 @@ func ParseHost(host string) (byte, string) {
 	ip := net.ParseIP(s)
 	var t byte
 	if ip != nil {
-		if ip.To16() != nil {
-			t = SocksIPv6Host
-		} else {
+		if ip.To4() != nil {
 			t = SocksIPv4Host
+		} else {
+			t = SocksIPv6Host
 		}
 	} else {
 		t = SocksDomainHost

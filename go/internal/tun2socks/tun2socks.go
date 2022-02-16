@@ -1,10 +1,12 @@
 package tun2socks
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"runtime"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -13,7 +15,7 @@ import (
 )
 
 const (
-	MTU = 15000
+	MTU = 10240
 
 	PROXY_TYPE_NONE  = 0
 	PROXY_TYPE_SOCKS = 1
@@ -26,18 +28,35 @@ var (
 			UserName: "cloudveilsocks",
 			Password: "cloudveilsocks",
 		},
-		Timeout: time.Second,
+		Timeout: 10 * time.Second,
 	}
 
 	directDialer *gosocks.SocksDialer = &gosocks.SocksDialer{
 		Auth:    &gosocks.HttpAuthenticator{},
-		Timeout: time.Second,
+		Timeout: 10 * time.Second,
 	}
 
-	_, ip1, _ = net.ParseCIDR("10.0.0.0/24")
-	_, ip2, _ = net.ParseCIDR("172.16.0.0/20")
-	_, ip3, _ = net.ParseCIDR("192.168.0.0/16")
+	privateIPBlocks []*net.IPNet
 )
+
+func initPrivateIps() {
+	for _, cidr := range []string{
+		"127.0.0.0/8",    // IPv4 loopback
+		"10.0.0.0/8",     // RFC1918
+		"172.16.0.0/12",  // RFC1918
+		"192.168.0.0/16", // RFC1918
+		"::1/128",        // IPv6 loopback
+		"fe80::/10",      // IPv6 link-local
+		"fc00::/7",       // IPv6 unique local addr
+	} {
+		_, block, err := net.ParseCIDR(cidr)
+		if err != nil {
+			log.Printf("Error parsing cidr %s", err)
+			continue
+		}
+		privateIPBlocks = append(privateIPBlocks, block)
+	}
+}
 
 type ProxyServer struct {
 	ProxyType  int
@@ -62,7 +81,8 @@ type Tun2Socks struct {
 	defaultProxyServer *ProxyServer
 	uidCallback        UidCallback
 
-	tcpConnTrackLock sync.Mutex
+	tcpConnTrackLock      sync.Mutex
+	ipDirectConnTrackLock sync.Mutex
 
 	udpConnTrackLock sync.Mutex
 	udpConnTrackMap  map[string]*udpConnTrack
@@ -70,14 +90,26 @@ type Tun2Socks struct {
 	stopped          bool
 
 	wg sync.WaitGroup
+
+	customDnsHost net.IP
+	customDnsPort uint16
 }
 
 func isPrivate(ip net.IP) bool {
-	return ip1.Contains(ip) || ip2.Contains(ip) || ip3.Contains(ip)
+	return false
+	/*
+		if len(privateIPBlocks) == 0 {
+			initPrivateIps()
+		}
+		for _, block := range privateIPBlocks {
+			if block.Contains(ip) {
+				return true
+			}
+		}
+		return false*/
 }
 
 func dialLocalSocks(proxyServer *ProxyServer) (*gosocks.SocksConn, error) {
-	log.Print("dialLocalSocks")
 	localSocksDialer.Auth = &gosocks.UserNamePasswordClientAuthenticator{
 		UserName: proxyServer.Login,
 		Password: proxyServer.Password,
@@ -87,11 +119,10 @@ func dialLocalSocks(proxyServer *ProxyServer) (*gosocks.SocksConn, error) {
 }
 
 func dialTransaprent(localAddr string) (*gosocks.SocksConn, error) {
-	log.Print("dialTransaprent")
 	return directDialer.Dial(localAddr)
 }
 
-func New(dev io.ReadWriteCloser, enableDnsCache bool) *Tun2Socks {
+func New(dev io.ReadWriteCloser, enableDnsCache bool, dnsServerIp net.IP, dnsServerPort uint16) *Tun2Socks {
 	t2s := &Tun2Socks{
 		dev:                dev,
 		writerStopCh:       make(chan bool, 10),
@@ -102,6 +133,8 @@ func New(dev io.ReadWriteCloser, enableDnsCache bool) *Tun2Socks {
 		uidCallback:        nil,
 		defaultProxyServer: nil,
 		stopped:            false,
+		customDnsHost:      dnsServerIp,
+		customDnsPort:      dnsServerPort,
 	}
 	if enableDnsCache {
 		t2s.cache = &dnsCache{
@@ -136,15 +169,17 @@ func (t2s *Tun2Socks) Stop() {
 		}
 		close(tcpTrack.quitByOther)
 	}
+	t2s.tcpConnTrackMap = make(map[string]*tcpConnTrack)
 
 	t2s.udpConnTrackLock.Lock()
 	defer t2s.udpConnTrackLock.Unlock()
 	for _, udpTrack := range t2s.udpConnTrackMap {
 		close(udpTrack.quitByOther)
 	}
+	t2s.udpConnTrackMap = make(map[string]*udpConnTrack)
+
 	t2s.stopped = true
-	t2s.wg.Wait()
-	log.Print("Stop")
+	//t2s.wg.Wait()
 }
 
 func (t2s *Tun2Socks) Run() {
@@ -152,13 +187,16 @@ func (t2s *Tun2Socks) Run() {
 	go func() {
 		t2s.wg.Add(1)
 		defer t2s.wg.Done()
+
+		buf := make([]byte, 2*MTU)
 		for {
 			select {
 			case pkt := <-t2s.writeCh:
 				switch pkt.(type) {
 				case *tcpPacket:
 					tcp := pkt.(*tcpPacket)
-					t2s.dev.Write(tcp.wire)
+					wireStart := tcp.packTcpIntoBuff(buf)
+					t2s.dev.Write(buf[wireStart:])
 					releaseTCPPacket(tcp)
 				case *udpPacket:
 					udp := pkt.(*udpPacket)
@@ -168,6 +206,8 @@ func (t2s *Tun2Socks) Run() {
 					ip := pkt.(*ipPacket)
 					t2s.dev.Write(ip.wire)
 					releaseIPPacket(ip)
+				case []byte:
+					t2s.dev.Write(pkt.([]byte))
 				}
 			case <-t2s.writerStopCh:
 				log.Printf("quit tun2socks writer")
@@ -178,7 +218,7 @@ func (t2s *Tun2Socks) Run() {
 
 	// reader
 	var buf [MTU]byte
-	var ip packet.IPv4
+	var ip packet.Ip
 	var tcp packet.TCP
 	var udp packet.UDP
 
@@ -189,7 +229,9 @@ func (t2s *Tun2Socks) Run() {
 				break
 			}
 
-			time.Sleep(5000 * time.Millisecond)
+			time.Sleep(15000 * time.Millisecond)
+
+			debug.FreeOSMemory()
 			log.Printf("Conn size tcp %d udp %d, routines %d", len(t2s.tcpConnTrackMap), len(t2s.udpConnTrackMap), runtime.NumGoroutine())
 		}
 		log.Printf("Worker exit")
@@ -197,6 +239,7 @@ func (t2s *Tun2Socks) Run() {
 
 	t2s.wg.Add(1)
 	defer t2s.wg.Done()
+
 	for {
 		n, e := t2s.dev.Read(buf[:])
 
@@ -206,7 +249,7 @@ func (t2s *Tun2Socks) Run() {
 		}
 
 		if n == 0 {
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(time.Millisecond)
 			continue
 		}
 		if e != nil {
@@ -216,23 +259,25 @@ func (t2s *Tun2Socks) Run() {
 		}
 
 		data := buf[:n]
-		e = packet.ParseIPv4(data, &ip)
+		e = packet.ParseIp(data, &ip)
 		if e != nil {
-			log.Printf("error to parse IPv4: %s", e)
+			log.Printf("error to parse Ip: %s", e)
 			continue
 		}
 
-		if ip.Flags&0x1 != 0 || ip.FragOffset != 0 {
-			last, pkt, raw := procFragment(&ip, data)
-			if last {
-				ip = *pkt
-				data = raw
-			} else {
-				continue
+		if ip.Version == 4 {
+			if ip.V4.Flags&0x1 != 0 || ip.V4.FragOffset != 0 {
+				last, pkt, raw := procFragment(&ip, data)
+				if last {
+					ip = *pkt
+					data = raw
+				} else {
+					continue
+				}
 			}
 		}
 
-		switch ip.Protocol {
+		switch ip.GetNextProto() {
 		case packet.IPProtocolTCP:
 			e = packet.ParseTCP(ip.Payload, &tcp)
 			if e != nil {
@@ -248,10 +293,21 @@ func (t2s *Tun2Socks) Run() {
 				continue
 			}
 			t2s.udp(data, &ip, &udp)
-
 		default:
 			// Unsupported packets
-			log.Printf("Unsupported packet: protocol %d", ip.Protocol)
 		}
 	}
+}
+
+func byteCountBinary(b uint64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
 }

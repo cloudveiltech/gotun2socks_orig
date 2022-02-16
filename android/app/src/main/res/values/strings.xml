@@ -3,4 +3,12 @@
     <string name="start">Start</string>
     <string name="stop">Stop</string>
     <string name="prof">Prof</string>
+    <string name="load_rules_from_local_file">Load rules from local file</string>
+    <string name="feeding_rules">Feeding Domain Rules</string>
+    <string name="feeding_trigger">Feeding Trigger Words</string>
+    <string name="load_phrases_from_local_file">Load triggers from local file</string>
+    <string name="save_to_file">Save To File</string>
+    <string name="load_from_file">Load From File</string>
+    <string name="enable_bypass">Enable bypass</string>
+    <string name="disable_bypass">Disable bypass</string>
 </resources>

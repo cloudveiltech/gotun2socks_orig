@@ -97,14 +97,12 @@ func ParseTCP(pkt []byte, tcp *TCP) error {
 		hostname, err := GetHostnameTls(tcp.Payload)
 		if err == nil {
 			tcp.Hostname = hostname
-			//log.Printf("Hostname tls is %s", hostname)
 		}
 	} else {
 		if tcp.DstPort == 80 {
 			hostname, err := GetHostnamePlainHttp(tcp.Payload)
 			if err == nil {
 				tcp.Hostname = hostname
-				//	log.Printf("Hostname plain is %s", hostname)
 			}
 		}
 	}

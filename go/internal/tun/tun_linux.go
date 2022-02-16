@@ -2,12 +2,9 @@ package tun
 
 import (
 	"io"
-	"log"
 	"net"
 	"os"
-	"os/exec"
 	"syscall"
-	"unsafe"
 )
 
 const (
@@ -20,40 +17,6 @@ type ifReq struct {
 	Name  [0x10]byte
 	Flags uint16
 	pad   [0x28 - 0x10 - 2]byte
-}
-
-func OpenTunDevice(name, addr, gw, mask string, dns []string) (io.ReadWriteCloser, error) {
-	file, err := os.OpenFile("/dev/net/tun", os.O_RDWR, 0)
-	if err != nil {
-		return nil, err
-	}
-	var req ifReq
-	copy(req.Name[:], name)
-	req.Flags = IFF_TUN | IFF_NO_PI
-	log.Printf("openning tun device")
-	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, file.Fd(), uintptr(syscall.TUNSETIFF), uintptr(unsafe.Pointer(&req)))
-	if errno != 0 {
-		err = errno
-		return nil, err
-	}
-
-	// config address
-	log.Printf("configuring tun device address")
-	cmd := exec.Command("ifconfig", name, addr, "netmask", mask, "mtu", "15000")
-	err = cmd.Run()
-	if err != nil {
-		file.Close()
-		log.Printf("failed to configure tun device address")
-		return nil, err
-	}
-	syscall.SetNonblock(int(file.Fd()), true)
-	return &tunDev{
-		f:      file,
-		addr:   addr,
-		addrIP: net.ParseIP(addr).To4(),
-		gw:     gw,
-		gwIP:   net.ParseIP(gw).To4(),
-	}, nil
 }
 
 func NewTunDev(fd uintptr, name string, addr string, gw string) io.ReadWriteCloser {
@@ -88,7 +51,6 @@ func (dev *tunDev) Write(data []byte) (int, error) {
 }
 
 func (dev *tunDev) Close() error {
-	log.Printf("send stop marker")
-	sendStopMarker(dev.addr, dev.gw)
-	return dev.f.Close()
+	dev.f.Close()
+	return nil
 }

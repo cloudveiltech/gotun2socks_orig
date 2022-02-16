@@ -5,7 +5,7 @@ import (
 )
 
 var (
-	bufPool *sync.Pool = &sync.Pool{
+	bufPool = &sync.Pool{
 		New: func() interface{} {
 			return make([]byte, MTU)
 		},

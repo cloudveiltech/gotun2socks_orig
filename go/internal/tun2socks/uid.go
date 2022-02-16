@@ -1,15 +1,20 @@
 package tun2socks
 
 import (
+	"encoding/hex"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
 	"strconv"
 	"strings"
 )
 
-func getTcpData() []string {
+func getTcpData(isV6 bool) []string {
 	fileName := "/proc/net/tcp"
+	if isV6 {
+		fileName = "/proc/net/tcp6"
+	}
 
 	data, err := ioutil.ReadFile(fileName)
 	if err != nil {
@@ -34,13 +39,12 @@ func hexToDec(h string) uint16 {
 }
 
 func convertIp(ip string) string {
-	// Convert the ipv4 to decimal. Have to rearrange the ip because the
+	// Convert the ip to decimal. Have to rearrange the ip because the
 	// default value is in little Endian order.
 
 	var out string
 
-	// Check ip size if greater than 8 is a ipv6 type
-	if len(ip) > 8 {
+	if len(ip) > 8 { //ipv6
 		i := []string{ip[30:32],
 			ip[28:30],
 			ip[26:28],
@@ -57,13 +61,13 @@ func convertIp(ip string) string {
 			ip[4:6],
 			ip[2:4],
 			ip[0:2]}
-		out = fmt.Sprintf("%v%v:%v%v:%v%v:%v%v:%v%v:%v%v:%v%v:%v%v",
-			i[14], i[15], i[13], i[12],
-			i[10], i[11], i[8], i[9],
-			i[6], i[7], i[4], i[5],
-			i[2], i[3], i[0], i[1])
+		out = strings.ToLower(fmt.Sprintf("%v%v:%v%v:%v%v:%v%v:%v%v:%v%v:%v%v:%v%v",
+			i[12], i[13], i[14], i[15],
+			i[8], i[9], i[10], i[11],
+			i[4], i[5], i[6], i[7],
+			i[0], i[1], i[2], i[3]))
 
-	} else {
+	} else if len(ip) > 7 {
 		i := []uint16{hexToDec(ip[6:8]),
 			hexToDec(ip[4:6]),
 			hexToDec(ip[2:4]),
@@ -72,6 +76,20 @@ func convertIp(ip string) string {
 		out = fmt.Sprintf("%v.%v.%v.%v", i[0], i[1], i[2], i[3])
 	}
 	return out
+}
+
+func expandIPv6(ip string) string {
+	parsedIp := net.ParseIP(ip)
+	dst := make([]byte, hex.EncodedLen(len(parsedIp)))
+	_ = hex.Encode(dst, parsedIp)
+	return string(dst[0:4]) + ":" +
+		string(dst[4:8]) + ":" +
+		string(dst[8:12]) + ":" +
+		string(dst[12:16]) + ":" +
+		string(dst[16:20]) + ":" +
+		string(dst[20:24]) + ":" +
+		string(dst[24:28]) + ":" +
+		string(dst[28:])
 }
 
 func removeEmpty(array []string) []string {
@@ -90,7 +108,16 @@ func (t2s *Tun2Socks) FindAppUid(sourceIp string, sourcePort uint16, destIp stri
 		return t2s.uidCallback.GetUid(sourceIp, sourcePort, destIp, destPort)
 	}
 
-	lines := getTcpData()
+	if len(destIp) == 0 || len(sourceIp) == 0 {
+		return -1
+	}
+
+	isIpV6 := strings.Count(destIp, ":") > 1
+	lines := getTcpData(isIpV6)
+	if isIpV6 {
+		sourceIp = strings.ToLower(expandIPv6(sourceIp))
+		destIp = strings.ToLower(expandIPv6(destIp))
+	}
 	if lines == nil {
 		return -1
 	}
@@ -116,6 +143,5 @@ func (t2s *Tun2Socks) FindAppUid(sourceIp string, sourcePort uint16, destIp stri
 			}
 		}
 	}
-
 	return -1
 }

@@ -14,7 +14,7 @@ import (
 )
 
 type udpPacket struct {
-	ip     *packet.IPv4
+	ip     *packet.Ip
 	udp    *packet.UDP
 	mtuBuf []byte
 	wire   []byte
@@ -54,7 +54,7 @@ func newUDPPacket() *udpPacket {
 }
 
 func releaseUDPPacket(pkt *udpPacket) {
-	packet.ReleaseIPv4(pkt.ip)
+	packet.ReleaseIP(pkt.ip)
 	packet.ReleaseUDP(pkt.udp)
 	if pkt.mtuBuf != nil {
 		releaseBuffer(pkt.mtuBuf)
@@ -64,17 +64,17 @@ func releaseUDPPacket(pkt *udpPacket) {
 	udpPacketPool.Put(pkt)
 }
 
-func udpConnID(ip *packet.IPv4, udp *packet.UDP) string {
+func udpConnID(ip *packet.Ip, udp *packet.UDP) string {
 	return strings.Join([]string{
-		ip.SrcIP.String(),
+		ip.Src.String(),
 		fmt.Sprintf("%d", udp.SrcPort),
-		ip.DstIP.String(),
+		ip.Dst.String(),
 		fmt.Sprintf("%d", udp.DstPort),
 	}, "|")
 }
 
-func copyUDPPacket(raw []byte, ip *packet.IPv4, udp *packet.UDP) *udpPacket {
-	iphdr := packet.NewIPv4()
+func copyUDPPacket(raw []byte, ip *packet.Ip, udp *packet.UDP) *udpPacket {
+	iphdr := packet.NewIP()
 	udphdr := packet.NewUDP()
 	pkt := newUDPPacket()
 
@@ -88,7 +88,7 @@ func copyUDPPacket(raw []byte, ip *packet.IPv4, udp *packet.UDP) *udpPacket {
 	}
 	n := copy(buf, raw)
 	pkt.wire = buf[:n]
-	packet.ParseIPv4(pkt.wire, iphdr)
+	packet.ParseIp(pkt.wire, iphdr)
 	packet.ParseUDP(iphdr.Payload, udphdr)
 	pkt.ip = iphdr
 	pkt.udp = udphdr
@@ -98,18 +98,23 @@ func copyUDPPacket(raw []byte, ip *packet.IPv4, udp *packet.UDP) *udpPacket {
 
 func responsePacket(local net.IP, remote net.IP, lPort uint16, rPort uint16, respPayload []byte) (*udpPacket, []*ipPacket) {
 	ipid := packet.IPID()
-
-	ip := packet.NewIPv4()
 	udp := packet.NewUDP()
 
-	ip.Version = 4
-	ip.Id = ipid
-	ip.SrcIP = make(net.IP, len(remote))
-	copy(ip.SrcIP, remote)
-	ip.DstIP = make(net.IP, len(local))
-	copy(ip.DstIP, local)
-	ip.TTL = 64
-	ip.Protocol = packet.IPProtocolUDP
+	var ip *packet.Ip
+	if remote.To4() != nil {
+		ip = packet.NewIP4()
+		ip.V4.Id = ipid
+	} else {
+		ip = packet.NewIP6()
+	}
+
+	ip.Src = make(net.IP, len(remote))
+	copy(ip.Src, remote)
+	ip.Dst = make(net.IP, len(local))
+	copy(ip.Dst, local)
+
+	ip.SetHopLimit(64)
+	ip.SetNextProto(packet.IPProtocolUDP)
 
 	udp.SrcPort = rPort
 	udp.DstPort = lPort
@@ -124,12 +129,17 @@ func responsePacket(local net.IP, remote net.IP, lPort uint16, rPort uint16, res
 	payloadStart := MTU - payloadL
 	// if payload too long, need fragment, only part of payload put to mtubuf[28:]
 	if payloadL > MTU-28 {
-		ip.Flags = 1
+		if ip.Version == 4 {
+			ip.V4.Flags = 1
+		}
 		payloadStart = 28
 	}
 	udpHL := 8
 	udpStart := payloadStart - udpHL
-	pseduoStart := udpStart - packet.IPv4_PSEUDO_LENGTH
+	pseduoStart := udpStart - packet.IP4_PSEUDO_LENGTH
+	if ip.Version == 6 {
+		pseduoStart = udpStart - packet.IP6_PSEUDO_LENGTH
+	}
 	ip.PseudoHeader(pkt.mtuBuf[pseduoStart:udpStart], packet.IPProtocolUDP, udpHL+payloadL)
 	// udp length and checksum count on full payload
 	udp.Serialize(pkt.mtuBuf[udpStart:payloadStart], pkt.mtuBuf[pseduoStart:payloadStart], udp.Payload)
@@ -142,9 +152,14 @@ func responsePacket(local net.IP, remote net.IP, lPort uint16, rPort uint16, res
 	ip.Serialize(pkt.mtuBuf[ipStart:udpStart], udpHL+(MTU-payloadStart))
 	pkt.wire = pkt.mtuBuf[ipStart:]
 
-	if ip.Flags == 0 {
+	if ip.Version == 4 {
+		if ip.V4.Flags == 0 {
+			return pkt, nil
+		}
+	} else {
 		return pkt, nil
 	}
+
 	// generate fragments
 	frags := genFragments(ip, (MTU-20)/8, respPayload[MTU-28:])
 	return pkt, frags
@@ -163,6 +178,7 @@ func (ut *udpConnTrack) send(data []byte) {
 func dialUdpTransparent(address string) (conn *gosocks.SocksConn, err error) {
 	c, err := net.DialTimeout("udp", address, time.Second)
 	if err != nil {
+		log.Printf("Error dial udp: %s", err)
 		return
 	}
 	conn = &gosocks.SocksConn{c.(*net.UDPConn), time.Second}
@@ -172,7 +188,22 @@ func dialUdpTransparent(address string) (conn *gosocks.SocksConn, err error) {
 func (ut *udpConnTrack) run() {
 	// connect to socks
 	var e error
-	var remoteIpPort = fmt.Sprintf("%s:%d", ut.remoteIP.String(), ut.remotePort)
+
+	targetIp := ut.remoteIP
+	port := ut.remotePort
+	if ut.t2s.isDNS(port) {
+		if ut.t2s.customDnsHost != nil {
+			port = ut.t2s.customDnsPort
+			targetIp = ut.t2s.customDnsHost
+		}
+	}
+
+	var remoteIpPort = ""
+	if targetIp.To4() != nil {
+		remoteIpPort = fmt.Sprintf("%s:%d", targetIp.String(), port)
+	} else {
+		remoteIpPort = fmt.Sprintf("[%s]:%d", targetIp.String(), port)
+	}
 
 	ut.socksConn, e = dialUdpTransparent(remoteIpPort) //bypass udp
 	if e != nil {
@@ -205,7 +236,7 @@ func (ut *udpConnTrack) run() {
 		return
 	}
 
-	relayAddr := gosocks.SocksAddrToNetAddr("udp", ut.remoteIP.String(), ut.remotePort).(*net.UDPAddr)
+	relayAddr := gosocks.SocksAddrToNetAddr("udp", targetIp.String(), port).(*net.UDPAddr)
 
 	ut.socksConn.SetDeadline(time.Time{})
 	// monitor socks TCP connection
@@ -237,14 +268,15 @@ func (ut *udpConnTrack) run() {
 
 			ut.send(pkt.Data)
 
-			if ut.t2s.isDNS(ut.remoteIP.String(), ut.remotePort) {
-				//dumpDnsResponse(pkt.Data)
+			if ut.t2s.isDNS(ut.remotePort) {
+				// dumpDnsResponse(pkt.Data)
 				// DNS-without-fragment only has one request-response
 				//	end := time.Now()
 				//	ms := end.Sub(start).Nanoseconds() / 1000000
-				//log.Printf("DNS session response received: %d ms ", ms)
-				if ut.t2s.cache != nil {
-					ut.t2s.cache.store(pkt.Data)
+				if ut.remoteIP.To4() != nil {
+					if ut.t2s.cache != nil {
+						ut.t2s.cache.store(pkt.Data)
+					}
 				}
 				ut.socksConn.Close()
 				udpBind.Close()
@@ -312,7 +344,6 @@ func (ut *udpConnTrack) newPacket(pkt *udpPacket) {
 	case <-ut.quitByOther:
 	case <-ut.quitBySelf:
 	case ut.fromTunCh <- pkt:
-		//	log.Printf("--> [UDP][%s]", ut.id)
 	}
 }
 
@@ -326,7 +357,7 @@ func (t2s *Tun2Socks) clearUDPConnTrack(id string) {
 	delete(t2s.udpConnTrackMap, id)
 }
 
-func (t2s *Tun2Socks) getUDPConnTrack(id string, ip *packet.IPv4, udp *packet.UDP) *udpConnTrack {
+func (t2s *Tun2Socks) getUDPConnTrack(id string, ip *packet.Ip, udp *packet.UDP) *udpConnTrack {
 	t2s.udpConnTrackLock.Lock()
 	defer t2s.udpConnTrackLock.Unlock()
 
@@ -351,10 +382,10 @@ func (t2s *Tun2Socks) getUDPConnTrack(id string, ip *packet.IPv4, udp *packet.UD
 			remotePort: udp.DstPort,
 			destroyed:  false,
 		}
-		track.localIP = make(net.IP, len(ip.SrcIP))
-		copy(track.localIP, ip.SrcIP)
-		track.remoteIP = make(net.IP, len(ip.DstIP))
-		copy(track.remoteIP, ip.DstIP)
+		track.localIP = make(net.IP, len(ip.Src))
+		copy(track.localIP, ip.Src)
+		track.remoteIP = make(net.IP, len(ip.Dst))
+		copy(track.remoteIP, ip.Dst)
 
 		t2s.udpConnTrackMap[id] = track
 		go track.run()
@@ -362,19 +393,17 @@ func (t2s *Tun2Socks) getUDPConnTrack(id string, ip *packet.IPv4, udp *packet.UD
 	}
 }
 
-func (t2s *Tun2Socks) udp(raw []byte, ip *packet.IPv4, udp *packet.UDP) {
+func (t2s *Tun2Socks) udp(raw []byte, ip *packet.Ip, udp *packet.UDP) {
 	var buf [1024]byte
 	var done bool
 
 	// first look at dns cache
-	if t2s.cache != nil && t2s.isDNS(ip.DstIP.String(), udp.DstPort) {
+	if t2s.cache != nil && t2s.isDNS(udp.DstPort) {
 		answer := t2s.cache.query(udp.Payload)
 		if answer != nil {
 			data, e := answer.PackBuffer(buf[:])
 			if e == nil {
-				log.Printf("UDP: Cache hit")
-
-				resp, fragments := responsePacket(ip.SrcIP, ip.DstIP, udp.SrcPort, udp.DstPort, data)
+				resp, fragments := responsePacket(ip.Src, ip.Dst, udp.SrcPort, udp.DstPort, data)
 				go func(first *udpPacket, frags []*ipPacket) {
 					t2s.writeCh <- first
 					if frags != nil {
@@ -388,7 +417,7 @@ func (t2s *Tun2Socks) udp(raw []byte, ip *packet.IPv4, udp *packet.UDP) {
 		}
 	}
 
-	if !t2s.isDNS(ip.DstIP.String(), udp.DstPort) {
+	if !t2s.isDNS(udp.DstPort) {
 		done = true
 	}
 
@@ -418,11 +447,13 @@ func cacheKey(q dns.Question) string {
 	return string(append([]byte(q.Name), packUint16(q.Qtype)...))
 }
 
-func (t2s *Tun2Socks) isDNS(remoteIP string, remotePort uint16) bool {
-	return remotePort == 53
+func (t2s *Tun2Socks) isDNS(remotePort uint16) bool {
+	return remotePort == 53 || remotePort == 853
 }
 
 func (c *dnsCache) query(payload []byte) *dns.Msg {
+	return nil
+
 	request := new(dns.Msg)
 	e := request.Unpack(payload)
 	if e != nil {
@@ -448,6 +479,8 @@ func (c *dnsCache) query(payload []byte) *dns.Msg {
 }
 
 func (c *dnsCache) store(payload []byte) {
+	return
+
 	resp := new(dns.Msg)
 	e := resp.Unpack(payload)
 	if e != nil {
@@ -463,7 +496,6 @@ func (c *dnsCache) store(payload []byte) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	key := cacheKey(resp.Question[0])
-	log.Printf("cache DNS response for %s", key)
 	c.storage[key] = &dnsCacheEntry{
 		msg: resp,
 		exp: time.Now().Add(time.Duration(resp.Answer[0].Header().Ttl) * time.Second),
