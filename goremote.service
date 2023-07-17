@@ -1,0 +1,27 @@
+[Unit]
+Description=Sleep service
+ConditionPathExists=/usr/local/goremote
+After=network.target
+ 
+[Service]
+Type=simple
+User=goremote
+Group=goremote
+LimitNOFILE=1024
+
+Restart=on-failure
+RestartSec=10
+startLimitIntervalSec=60
+
+WorkingDirectory=/usr/local/goremote
+ExecStart=/usr/local/goremote
+
+# make sure log directory exists and owned by syslog
+PermissionsStartOnly=true
+ExecStartPre=/bin/mkdir -p /var/log/goremote
+ExecStartPre=/bin/chown syslog:adm /var/log/goremote
+ExecStartPre=/bin/chmod 755 /var/log/goremote
+SyslogIdentifier=goremote
+ 
+[Install]
+WantedBy=multi-user.target
