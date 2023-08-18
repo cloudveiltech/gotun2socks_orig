@@ -1,6 +1,6 @@
 [Unit]
-Description=Sleep service
-ConditionPathExists=/usr/local/goremote
+Description=GoRemote ICap proxy server
+ConditionPathExists=/usr/local/bin/goremote
 After=network.target
  
 [Service]
@@ -10,16 +10,14 @@ Group=goremote
 LimitNOFILE=1024
 
 Restart=on-failure
-RestartSec=10
-startLimitIntervalSec=60
 
-WorkingDirectory=/usr/local/goremote
-ExecStart=/usr/local/goremote
+WorkingDirectory=/usr/local/bin
+ExecStart=/usr/local/bin/goremote
 
 # make sure log directory exists and owned by syslog
 PermissionsStartOnly=true
 ExecStartPre=/bin/mkdir -p /var/log/goremote
-ExecStartPre=/bin/chown syslog:adm /var/log/goremote
+ExecStartPre=/bin/chown root:adm /var/log/goremote
 ExecStartPre=/bin/chmod 755 /var/log/goremote
 SyslogIdentifier=goremote
  

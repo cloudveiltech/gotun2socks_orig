@@ -74,7 +74,7 @@ func CookiePatchSafeSearch(host, cookieValue string) string {
 }
 
 func serveHttp2Filtering(r *http.Request, rawClientTls *tls.Conn, remote *tls.UConn) bool {
-	log.Print("Running http2 handler for " + r.URL.String())
+	//log.Print("Running http2 handler for " + r.URL.String())
 
 	http2Handler := &Http2Handler{
 		maxFrameSize:           1024,
@@ -100,6 +100,10 @@ func (http2Handler *Http2Handler) processHttp2Stream(local *tls.Conn, remote *tl
 	b := make([]byte, len(preface))
 	if _, err := io.ReadFull(local, b); err != nil {
 		log.Printf("ReadFrame: preface %v", err)
+		go func() {
+			io.Copy(local, remote)
+		}()
+		io.Copy(remote, local)
 		return
 	}
 	if string(b) != preface {
@@ -148,7 +152,7 @@ func isContentTypeFilterable(contentType string) bool {
 func (http2Handler *Http2Handler) readFrame(directFramer, reverseFramer *http2.Framer, decoder *hpack.Decoder, client bool) int {
 	f, err := directFramer.ReadFrame()
 	if err != nil {
-		log.Printf("ReadFrame client %v, err: %v", client, err)
+		//log.Printf("ReadFrame client %v, err: %v", client, err)
 		return STATUS_ENDED
 	}
 

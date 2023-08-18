@@ -22,7 +22,7 @@ import (
 type Config struct {
 	icapServerReqUrl  string
 	icapServerRespUrl string
-	port              int16
+	port              uint16
 }
 
 var (
@@ -208,7 +208,7 @@ func nonBlockingCopy(from, to net.Conn) {
 	}
 }
 
-func startGoProxyServer(certPath, certKeyPath, icapServerReqUrl, icapServerRespUrl string, port int16) {
+func startGoProxyServer(certPath, certKeyPath, icapServerReqUrl, icapServerRespUrl string, port uint16) {
 	config.icapServerReqUrl = icapServerReqUrl
 	config.icapServerRespUrl = icapServerRespUrl
 	config.port = port
