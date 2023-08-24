@@ -238,7 +238,7 @@ func startGoProxyServer(certPath, certKeyPath, icapServerReqUrl, icapServerRespU
 			icapReq.Header.Set("X-ICAP-E2G", "-,G,0,0,0,")
 			if err != nil {
 				log.Printf("Error icap %v", err)
-				return r, nil
+				return r, goproxy.NewResponse(r, "text/plain", 500, "Can't connect to icap server request")
 			}
 
 			icapReq.SetPreview(icapOptionsReq.PreviewBytes)
@@ -250,7 +250,7 @@ func startGoProxyServer(certPath, certKeyPath, icapServerReqUrl, icapServerRespU
 
 			if err != nil {
 				log.Printf("Error icap %v", err)
-				return r, nil
+				return r, goproxy.NewResponse(r, "text/plain", 500, "Can't connect to icap server request")
 			}
 			request := response.ContentRequest
 			if request == nil {
@@ -274,7 +274,7 @@ func startGoProxyServer(certPath, certKeyPath, icapServerReqUrl, icapServerRespU
 			icapReq.Header.Set("X-ICAP-E2G", "-,G,0,0,0,")
 			if err != nil {
 				log.Printf("Error icap %v", err)
-				return resp
+				return goproxy.NewResponse(resp.Request, "text/plain", 500, "Can't connect to icap server response")
 			}
 
 			icapReq.SetPreview(icapOptionsResp.PreviewBytes)
@@ -285,7 +285,7 @@ func startGoProxyServer(certPath, certKeyPath, icapServerReqUrl, icapServerRespU
 
 			if err != nil {
 				log.Printf("Error icap %v", err)
-				return resp
+				return goproxy.NewResponse(resp.Request, "text/plain", 500, "Can't connect to icap server response")
 			}
 
 			if response.ContentResponse != nil {
