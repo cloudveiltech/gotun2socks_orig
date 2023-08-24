@@ -1,11 +1,11 @@
 #!/bin/bash
 cp goicap /usr/local/bin/goremote
 
-echo "Copiing service to /lib/systemd/system/"
+echo "Copying service to /lib/systemd/system/"
 sudo cp goremote.service /lib/systemd/system/.
 sudo useradd -s /sbin/nologin -M goremote
 
-echo "Copiing config to /etc/goremote"
+echo "Copying config to /etc/goremote"
 sudo mkdir /etc/goremote
 sudo cp config.yml /etc/goremote/.
 

@@ -1,5 +1,5 @@
 certFile: "./rootCertificate.pem"
 certKey: "./rootPrivateKey.pem"
 port: 12345
-icapServerReqUrl: "icap://filter-us-tx-3.cloudveil.org:27000/request"
-icapServerRespUrl: "icap://filter-us-tx-3.cloudveil.org:27000/response"
+icapServerReqUrl: "icap://testserver.cloudveil.org:27000/request"
+icapServerRespUrl: "icap://testserver.cloudveil.org:27000/response"
