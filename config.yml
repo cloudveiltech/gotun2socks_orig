@@ -1,0 +1,5 @@
+certFile: "./rootCertificate.pem"
+certKey: "./rootPrivateKey.pem"
+port: 12345
+icapServerReqUrl: "icap://testserver.cloudveil.org:27000/request"
+icapServerRespUrl: "icap://testserver.cloudveil.org:27000/response"

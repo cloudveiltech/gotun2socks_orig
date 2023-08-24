@@ -1,0 +1,25 @@
+[Unit]
+Description=GoRemote ICap proxy server
+ConditionPathExists=/usr/local/bin/goremote
+After=network.target
+ 
+[Service]
+Type=simple
+User=goremote
+Group=goremote
+LimitNOFILE=1024
+
+Restart=on-failure
+
+WorkingDirectory=/usr/local/bin
+ExecStart=/usr/local/bin/goremote
+
+# make sure log directory exists and owned by syslog
+PermissionsStartOnly=true
+ExecStartPre=/bin/mkdir -p /var/log/goremote
+ExecStartPre=/bin/chown root:adm /var/log/goremote
+ExecStartPre=/bin/chmod 755 /var/log/goremote
+SyslogIdentifier=goremote
+ 
+[Install]
+WantedBy=multi-user.target
