@@ -1,5 +1,7 @@
 certFile: "./rootCertificate.pem"
 certKey: "./rootPrivateKey.pem"
-port: 12345
-icapServerReqUrl: "icap://testserver.cloudveil.org:27000/request"
-icapServerRespUrl: "icap://testserver.cloudveil.org:27000/response"
+proxyPort: 12345
+tunnelPort: 12000
+icapServerReqUrl: "icap://test-icap-server.com:27000/request"
+icapServerRespUrl: "icap://test-icap-server.com:27000/response"
+forwardProxyAddress: "test-proxy-server.com:50652"
