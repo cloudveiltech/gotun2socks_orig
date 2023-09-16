@@ -17,9 +17,10 @@ import (
 const (
 	MTU = 10240
 
-	PROXY_TYPE_NONE  = 0
-	PROXY_TYPE_SOCKS = 1
-	PROXY_TYPE_HTTP  = 2
+	PROXY_TYPE_NONE        = 0
+	PROXY_TYPE_SOCKS       = 1
+	PROXY_TYPE_HTTP        = 2
+	PROXY_TYPE_TRANSPARENT = 3
 )
 
 var (
@@ -91,8 +92,9 @@ type Tun2Socks struct {
 
 	wg sync.WaitGroup
 
-	customDnsHost net.IP
-	customDnsPort uint16
+	customDnsHost4 net.IP
+	customDnsHost6 net.IP
+	customDnsPort  uint16
 }
 
 func isPrivate(ip net.IP) bool {
@@ -122,7 +124,7 @@ func dialTransaprent(localAddr string) (*gosocks.SocksConn, error) {
 	return directDialer.Dial(localAddr)
 }
 
-func New(dev io.ReadWriteCloser, enableDnsCache bool, dnsServerIp net.IP, dnsServerPort uint16) *Tun2Socks {
+func New(dev io.ReadWriteCloser, enableDnsCache bool, dnsServerIp4, dnsServerIp6 net.IP, dnsServerPort uint16) *Tun2Socks {
 	t2s := &Tun2Socks{
 		dev:                dev,
 		writerStopCh:       make(chan bool, 10),
@@ -133,7 +135,8 @@ func New(dev io.ReadWriteCloser, enableDnsCache bool, dnsServerIp net.IP, dnsSer
 		uidCallback:        nil,
 		defaultProxyServer: nil,
 		stopped:            false,
-		customDnsHost:      dnsServerIp,
+		customDnsHost4:     dnsServerIp4,
+		customDnsHost6:     dnsServerIp6,
 		customDnsPort:      dnsServerPort,
 	}
 	if enableDnsCache {
@@ -157,8 +160,10 @@ func (t2s *Tun2Socks) SetProxyServers(proxyServerMap map[int]*ProxyServer) {
 }
 
 func (t2s *Tun2Socks) Stop() {
-	t2s.writerStopCh <- true
 	t2s.dev.Close()
+	t2s.stopped = true
+
+	t2s.writerStopCh <- true
 
 	t2s.tcpConnTrackLock.Lock()
 	defer t2s.tcpConnTrackLock.Unlock()
@@ -177,9 +182,6 @@ func (t2s *Tun2Socks) Stop() {
 		close(udpTrack.quitByOther)
 	}
 	t2s.udpConnTrackMap = make(map[string]*udpConnTrack)
-
-	t2s.stopped = true
-	//t2s.wg.Wait()
 }
 
 func (t2s *Tun2Socks) Run() {
@@ -232,7 +234,16 @@ func (t2s *Tun2Socks) Run() {
 			time.Sleep(15000 * time.Millisecond)
 
 			debug.FreeOSMemory()
-			log.Printf("Conn size tcp %d udp %d, routines %d", len(t2s.tcpConnTrackMap), len(t2s.udpConnTrackMap), runtime.NumGoroutine())
+			tcps := len(t2s.tcpConnTrackMap)
+			udps := len(t2s.udpConnTrackMap)
+			routines := runtime.NumGoroutine()
+			log.Printf("Conn size tcp %d udp %d, routines %d", tcps, udps, routines)
+			if routines > 10 && tcps == 0 && udps == 0 {
+				log.Printf("Goroutines Leakage detected!")
+				buf := make([]byte, 1<<16)
+				stackSize := runtime.Stack(buf, true)
+				log.Printf("%s\n", string(buf[0:stackSize]))
+			}
 		}
 		log.Printf("Worker exit")
 	}()

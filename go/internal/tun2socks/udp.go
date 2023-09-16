@@ -192,9 +192,12 @@ func (ut *udpConnTrack) run() {
 	targetIp := ut.remoteIP
 	port := ut.remotePort
 	if ut.t2s.isDNS(port) {
-		if ut.t2s.customDnsHost != nil {
+		if ut.t2s.customDnsHost4 != nil && (targetIp.To4() != nil || ut.t2s.customDnsHost6 == nil) { //use v4 host if v6 is not set
 			port = ut.t2s.customDnsPort
-			targetIp = ut.t2s.customDnsHost
+			targetIp = ut.t2s.customDnsHost4
+		} else if ut.t2s.customDnsHost6 != nil && targetIp.To4() == nil {
+			targetIp = ut.t2s.customDnsHost6
+			port = ut.t2s.customDnsPort
 		}
 	}
 
@@ -423,6 +426,7 @@ func (t2s *Tun2Socks) udp(raw []byte, ip *packet.Ip, udp *packet.UDP) {
 
 	// then open a udpConnTrack to forward
 	if !done {
+		log.Printf("UDP worker: %d %d", ip.Dst, udp.DstPort)
 		connID := udpConnID(ip, udp)
 		pkt := copyUDPPacket(raw, ip, udp)
 		track := t2s.getUDPConnTrack(connID, ip, udp)

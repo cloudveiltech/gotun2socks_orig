@@ -16,7 +16,7 @@ gobind {
     /* GOPATH where the Go package is; check `go env` */
     GOPATH = "C:/Users/dgora/go"
     /* Absolute path to the go binary */
-    GO = "c:/Go"
+    GO = "c:/Program Files/Go"
     GOMOBILEFLAGS = "-ldflags=\"-s -w\""
 
 

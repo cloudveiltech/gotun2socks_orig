@@ -43,9 +43,11 @@ var defaultProxy = &tun2socks.ProxyServer{
 	Password:   "",
 }
 
-var dnsServer string = ""
+var dnsServerV4 string = ""
+var dnsServerV6 string = ""
 var dnsPort uint16 = 53
-var dnsIp net.IP
+var dnsIp4 net.IP
+var dnsIp6 net.IP
 var callback *Callbacks = nil
 var customDialer net.Dialer
 var proxyServerMap map[int]*tun2socks.ProxyServer
@@ -105,15 +107,18 @@ func SetUidCallback(javaCallback JavaUidCallback) {
 	log.Printf("Uid callback set")
 }
 
-func SetDnsServer(server string, port int) {
-	dnsServer = server
+func SetDnsServer(server string, port int, isV4 bool) {
 	dnsPort = uint16(port)
-	dnsIp = net.ParseIP(server)
+	if isV4 {
+		dnsIp4 = net.ParseIP(server)
+	} else {
+		dnsIp6 = net.ParseIP(server)
+	}
 
 	if strings.Count(server, ":") > 1 { //ipv6
-		dnsServer = fmt.Sprintf("[%s]:%d", server, port)
+		dnsServerV6 = fmt.Sprintf("[%s]:%d", server, port)
 	} else {
-		dnsServer = fmt.Sprintf("%s:%d", server, port)
+		dnsServerV4 = fmt.Sprintf("%s:%d", server, port)
 	}
 }
 
@@ -122,19 +127,19 @@ func SetMaxCpus(maxCpus int) {
 	runtime.GOMAXPROCS(maxCpus)
 }
 
-func Run(descriptor int, maxCpus int, startLocalServer bool, certPath, certKeyPath string, logPath string) {
-	if !startLocalServer {
-		SetMaxCpus(maxCpus)
-	}
+func Run(descriptor int, maxCpus int, logPath string) {
+	SetMaxCpus(maxCpus)
 
-	setupLogger(logPath)
+	if len(logPath) > 0 {
+		setupLogger(logPath)
+	}
 
 	var tunAddr string = "10.253.253.253"
 	var tunGW string = "10.0.0.1"
 	var enableDnsCache bool = true
 
 	f := tun.NewTunDev(uintptr(descriptor), "tun0", tunAddr, tunGW)
-	tun2SocksInstance = tun2socks.New(f, enableDnsCache, dnsIp, dnsPort)
+	tun2SocksInstance = tun2socks.New(f, enableDnsCache, dnsIp4, dnsIp6, dnsPort)
 
 	tun2SocksInstance.SetDefaultProxy(defaultProxy)
 	tun2SocksInstance.SetProxyServers(proxyServerMap)
@@ -150,16 +155,12 @@ func Run(descriptor int, maxCpus int, startLocalServer bool, certPath, certKeyPa
 
 	customDialer = net.Dialer{}
 
-	if len(dnsServer) > 0 {
+	if len(dnsServerV4) > 0 {
 		r := net.Resolver{
 			PreferGo: true,
 			Dial:     customDNSDialer,
 		}
 		net.DefaultResolver = &r
-	}
-
-	if startLocalServer {
-		startGoProxyServer(certPath, certKeyPath)
 	}
 
 	log.Printf("Tun2Htpp started")
@@ -188,7 +189,6 @@ func setupLogger(logFile string) {
 
 func Stop() {
 	tun2SocksInstance.Stop()
-	stopGoProxyServer()
 	if logFileHandle != nil {
 		logFileHandle.Close()
 	}
@@ -201,7 +201,12 @@ func Prof() {
 }
 
 func customDNSDialer(ctx context.Context, network, address string) (net.Conn, error) {
-	conn, e := customDialer.DialContext(ctx, "udp", dnsServer)
+	addressServer := dnsServerV4
+	if strings.Contains(address, ":") && !strings.Contains(address, ".") {
+		addressServer = dnsServerV6
+
+	}
+	conn, e := customDialer.DialContext(ctx, "udp", addressServer)
 	if e != nil {
 		log.Printf("Error dns dial err %s", e)
 	}

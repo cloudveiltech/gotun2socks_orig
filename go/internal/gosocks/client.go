@@ -2,6 +2,7 @@ package gosocks
 
 import (
 	"bufio"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -112,7 +113,26 @@ func (d *SocksDialer) Dial(address string) (conn *SocksConn, err error) {
 	if err != nil {
 		return
 	}
-	conn = &SocksConn{c.(*net.TCPConn), d.Timeout}
+	cfg := &tls.Config{
+		MinVersion:               tls.VersionTLS12,
+		CurvePreferences:         []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
+		PreferServerCipherSuites: true,
+		InsecureSkipVerify:       true,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+			tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_RSA_WITH_AES_256_CBC_SHA,
+		},
+	}
+	tlsConn := tls.Client(c, cfg)
+
+	err = tlsConn.Handshake()
+	if err != nil {
+		return nil, err
+	}
+
+	conn = &SocksConn{tlsConn, d.Timeout}
 	err = d.Auth.ClientAuthenticate(conn)
 	if err != nil {
 		conn.Close()

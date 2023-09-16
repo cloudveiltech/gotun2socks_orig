@@ -454,7 +454,6 @@ func (tt *tcpConnTrack) stateClosed(syn *tcpPacket) (continu bool, release bool)
 	} else {
 		remoteIpPort = fmt.Sprintf("[%s]:%d", tt.remoteIP.String(), tt.remotePort)
 	}
-
 	if !isPrivate(tt.remoteIP) && (tt.remotePort == 80 || tt.remotePort == 443) {
 		if tt.uid == -1 {
 			uid := tt.t2s.FindAppUid(tt.localIP.String(), tt.localPort, tt.remoteIP.String(), tt.remotePort)
@@ -464,7 +463,7 @@ func (tt *tcpConnTrack) stateClosed(syn *tcpPacket) (continu bool, release bool)
 
 		if tt.proxyServer.ProxyType == PROXY_TYPE_SOCKS {
 			tt.socksConn, e = dialLocalSocks(tt.proxyServer) //only 80 and 443 goes to proxy
-		} else if tt.proxyServer.ProxyType == PROXY_TYPE_HTTP {
+		} else if tt.proxyServer.ProxyType == PROXY_TYPE_HTTP || tt.proxyServer.ProxyType == PROXY_TYPE_TRANSPARENT {
 			tt.socksConn, e = dialTransaprent(tt.proxyServer.IpAddress)
 			if len(syn.tcp.Hostname) > 0 && tt.proxyServer.ProxyType == PROXY_TYPE_HTTP && tt.remotePort == 443 {
 				tt.callHttpProxyConnect(tt.socksConn, tt.remoteIP, syn.tcp)

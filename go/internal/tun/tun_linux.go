@@ -4,7 +4,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"syscall"
 )
 
 const (
@@ -20,7 +19,6 @@ type ifReq struct {
 }
 
 func NewTunDev(fd uintptr, name string, addr string, gw string) io.ReadWriteCloser {
-	syscall.SetNonblock(int(fd), true)
 	return &tunDev{
 		f:      os.NewFile(fd, name),
 		addr:   addr,
@@ -41,16 +39,23 @@ type tunDev struct {
 }
 
 func (dev *tunDev) Read(data []byte) (int, error) {
+	if dev.f == nil {
+		return 0, nil
+	}
 	n, e := dev.f.Read(data)
 
 	return n, e
 }
 
 func (dev *tunDev) Write(data []byte) (int, error) {
+	if dev.f == nil {
+		return 0, nil
+	}
 	return dev.f.Write(data)
 }
 
 func (dev *tunDev) Close() error {
 	dev.f.Close()
+	dev.f = nil
 	return nil
 }

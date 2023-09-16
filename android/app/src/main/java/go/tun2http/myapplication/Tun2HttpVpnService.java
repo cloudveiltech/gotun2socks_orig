@@ -63,7 +63,7 @@ public class Tun2HttpVpnService extends VpnService {
             parcelFileDescriptor = builder.establish();
 
             String dir = Environment.getExternalStorageDirectory().getAbsolutePath();
-            Gotun2socks.run(parcelFileDescriptor.getFd(), MAX_CPUS, true, dir + "/self_cert.pem", dir + "/self_cert.key");
+            Gotun2socks.run(parcelFileDescriptor.getFd(), MAX_CPUS);
         }
 
         this.registerReceiver(connectivityChangeReceiver, new IntentFilter(android.net.ConnectivityManager.CONNECTIVITY_ACTION));

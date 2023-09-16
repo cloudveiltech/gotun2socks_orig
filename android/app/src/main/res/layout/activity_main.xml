@@ -10,7 +10,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginBottom="10dp"
-        android:text="Go Proxy Filtering Demo" />
+        android:text="Demo" />
 
     <TextView
         android:id="@+id/info"
@@ -26,46 +26,9 @@
         android:text="@string/start" />
 
     <Button
-        android:id="@+id/stop"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/stop" />
-
-
-    <Button
-        android:id="@+id/enable_bypass"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/enable_bypass" />
-
-    <Button
-        android:id="@+id/disable_bypass"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/disable_bypass" />
-
-    <Button
         android:id="@+id/prof"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="@string/prof" />
 
-    <Button
-        android:id="@+id/load_rules"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/load_rules_from_local_file" />
-
-    <Button
-        android:id="@+id/save_to_file"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/save_to_file" />
-
-
-    <Button
-        android:id="@+id/load_from_file"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/load_from_file" />
 </LinearLayout>
