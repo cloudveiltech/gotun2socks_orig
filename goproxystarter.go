@@ -99,6 +99,15 @@ func startGoProxyServer(certPath, certKeyPath, icapServerReqUrl, icapServerRespU
 		return
 	}
 
+	if config.forwardProxyAddress != "" {
+		proxy.Tr = &http.Transport{Proxy: func(req *http.Request) (*url.URL, error) {
+			return url.Parse("http://" + config.forwardProxyAddress)
+		}}
+		proxy.ConnectDial = proxy.NewConnectDialToProxy("http://" + config.forwardProxyAddress)
+
+		log.Printf("Forwarding traffic through %s", config.forwardProxyAddress)
+	}
+
 	proxy.Http2Handler = serveHttp2Filtering
 	if proxy.Verbose {
 		log.Printf("Server is about to start")
@@ -177,14 +186,7 @@ func startGoProxyServer(certPath, certKeyPath, icapServerReqUrl, icapServerRespU
 
 	log.Printf("Server started on port %d", config.proxyPort)
 	log.Printf("Tunnel listener started on port %d", config.tunnelPort)
-	if config.forwardProxyAddress != "" {
-		proxy.Tr = &http.Transport{Proxy: func(req *http.Request) (*url.URL, error) {
-			return url.Parse("http://" + config.forwardProxyAddress)
-		}}
-		proxy.ConnectDial = proxy.NewConnectDialToProxy("http://" + config.forwardProxyAddress)
 
-		log.Printf("Forwarding traffic through %s", config.forwardProxyAddress)
-	}
 }
 
 func initIcapServerConnection() (*icap.Response, *icap.Response) {
