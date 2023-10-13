@@ -238,12 +238,12 @@ func (t2s *Tun2Socks) Run() {
 			udps := len(t2s.udpConnTrackMap)
 			routines := runtime.NumGoroutine()
 			log.Printf("Conn size tcp %d udp %d, routines %d", tcps, udps, routines)
-			if routines > 10 && tcps == 0 && udps == 0 {
-				log.Printf("Goroutines Leakage detected!")
-				buf := make([]byte, 1<<16)
-				stackSize := runtime.Stack(buf, true)
-				log.Printf("%s\n", string(buf[0:stackSize]))
-			}
+			// if routines > 10 && tcps == 0 && udps == 0 {
+			// 	log.Printf("Goroutines Leakage detected!")
+			// 	buf := make([]byte, 1<<16)
+			// 	stackSize := runtime.Stack(buf, true)
+			// 	log.Printf("%s\n", string(buf[0:stackSize]))
+			// }
 		}
 		log.Printf("Worker exit")
 	}()

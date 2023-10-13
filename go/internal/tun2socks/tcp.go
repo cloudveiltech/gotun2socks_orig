@@ -637,6 +637,8 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 				break
 			}
 
+			conn.SetReadDeadline(time.Now().Add(time.Millisecond * 5000))
+
 			// tt.sendWndCond.L.Lock()
 			var wnd int32
 			var cur int32
@@ -678,10 +680,14 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 					atomic.CompareAndSwapInt32(&tt.sendWindow, wnd, nxt)
 					// tt.sendWndCond.L.Unlock()
 				}
-
-				if e != nil {
-					log.Printf("error to read from socks: %s", e)
+				if netErr, isNetErr := e.(net.Error); isNetErr && netErr.Timeout() {
+					//log.Printf("Timeout reading from TCP conn")
 					break
+				} else {
+					if e != nil {
+						log.Printf("error to read from socks: %s", e)
+						break
+					}
 				}
 			}
 			tt.recvWndCond.Broadcast()
