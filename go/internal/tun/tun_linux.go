@@ -55,7 +55,7 @@ func (dev *tunDev) Write(data []byte) (int, error) {
 }
 
 func (dev *tunDev) Close() error {
-	dev.f.Close()
+	//	dev.f.Close()
 	dev.f = nil
 	return nil
 }

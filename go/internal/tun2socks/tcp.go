@@ -464,7 +464,7 @@ func (tt *tcpConnTrack) stateClosed(syn *tcpPacket) (continu bool, release bool)
 		if tt.proxyServer.ProxyType == PROXY_TYPE_SOCKS {
 			tt.socksConn, e = dialLocalSocks(tt.proxyServer) //only 80 and 443 goes to proxy
 		} else if tt.proxyServer.ProxyType == PROXY_TYPE_HTTP || tt.proxyServer.ProxyType == PROXY_TYPE_TRANSPARENT {
-			tt.socksConn, e = dialTransaprent(tt.proxyServer.IpAddress)
+			tt.socksConn, e = dialTlsTunneling(tt.proxyServer.IpAddress)
 			if len(syn.tcp.Hostname) > 0 && tt.proxyServer.ProxyType == PROXY_TYPE_HTTP && tt.remotePort == 443 {
 				tt.callHttpProxyConnect(tt.socksConn, tt.remoteIP, syn.tcp)
 			}
@@ -477,7 +477,7 @@ func (tt *tcpConnTrack) stateClosed(syn *tcpPacket) (continu bool, release bool)
 
 	if e != nil {
 		log.Printf("fail to connect proxy: %s", e)
-		return
+		return false, true
 	} else {
 		// no timeout
 		tt.socksConn.SetDeadline(time.Time{})

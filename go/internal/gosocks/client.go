@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"time"
 )
@@ -26,6 +27,14 @@ type UserNamePasswordClientAuthenticator struct {
 }
 
 type HttpAuthenticator struct {
+}
+
+type TlsAuthenticator struct {
+}
+
+func (a *TlsAuthenticator) ClientAuthenticate(conn *SocksConn) (err error) {
+	conn.SetWriteDeadline(time.Now().Add(conn.Timeout))
+	return
 }
 
 func (a *HttpAuthenticator) ClientAuthenticate(conn *SocksConn) (err error) {
@@ -109,26 +118,30 @@ func (a *UserNamePasswordClientAuthenticator) ClientAuthenticate(conn *SocksConn
 }
 
 func (d *SocksDialer) Dial(address string) (conn *SocksConn, err error) {
-	c, err := net.DialTimeout("tcp", address, d.Timeout)
+	c, err := net.DialTimeout("tcp", address, time.Second)
 	if err != nil {
-		return
+		c, err = net.DialTimeout("tcp", address, time.Second)
+		if err != nil {
+			log.Printf("Can't connect to proxy %v", err)
+			return nil, err
+		}
 	}
+
+	_, ok := d.Auth.(*TlsAuthenticator)
+	if !ok {
+		return &SocksConn{c, d.Timeout}, nil
+	}
+
 	cfg := &tls.Config{
-		MinVersion:               tls.VersionTLS12,
-		CurvePreferences:         []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
 		PreferServerCipherSuites: true,
 		InsecureSkipVerify:       true,
-		CipherSuites: []uint16{
-			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
-			tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_RSA_WITH_AES_256_CBC_SHA,
-		},
 	}
 	tlsConn := tls.Client(c, cfg)
 
 	err = tlsConn.Handshake()
 	if err != nil {
+		c.Close()
+		log.Printf("Can't connect to proxy %v", err)
 		return nil, err
 	}
 
@@ -136,7 +149,7 @@ func (d *SocksDialer) Dial(address string) (conn *SocksConn, err error) {
 	err = d.Auth.ClientAuthenticate(conn)
 	if err != nil {
 		conn.Close()
-		return
+		return nil, err
 	}
 	return
 }

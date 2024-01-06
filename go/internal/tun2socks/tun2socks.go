@@ -37,6 +37,10 @@ var (
 		Timeout: 10 * time.Second,
 	}
 
+	tlsDialer *gosocks.SocksDialer = &gosocks.SocksDialer{
+		Auth:    &gosocks.TlsAuthenticator{},
+		Timeout: 10 * time.Second,
+	}
 	privateIPBlocks []*net.IPNet
 )
 
@@ -118,6 +122,10 @@ func dialLocalSocks(proxyServer *ProxyServer) (*gosocks.SocksConn, error) {
 	}
 
 	return localSocksDialer.Dial(proxyServer.IpAddress)
+}
+
+func dialTlsTunneling(localAddr string) (*gosocks.SocksConn, error) {
+	return tlsDialer.Dial(localAddr)
 }
 
 func dialTransaprent(localAddr string) (*gosocks.SocksConn, error) {

@@ -108,6 +108,17 @@ func SetUidCallback(javaCallback JavaUidCallback) {
 }
 
 func SetDnsServer(server string, port int, isV4 bool) {
+	if len(server) == 0 {
+		if isV4 {
+			dnsIp4 = nil
+			dnsServerV4 = ""
+			return
+		} else {
+			dnsIp6 = nil
+			dnsServerV6 = ""
+			return
+		}
+	}
 	dnsPort = uint16(port)
 	if isV4 {
 		dnsIp4 = net.ParseIP(server)
@@ -166,14 +177,6 @@ func Run(descriptor int, maxCpus int, logPath string) {
 	log.Printf("Tun2Htpp started")
 	debug.SetTraceback("all")
 	debug.SetPanicOnFault(true)
-
-	/*	go func() {
-		log.Printf("Starting Server! \t Go to http://localhost:6060/debug/pprof/\n")
-		err := http.ListenAndServe("localhost:6060", nil)
-		if err != nil {
-			log.Printf("Failed to start the server! Error: %v", err)
-		}
-	}()*/
 }
 
 func setupLogger(logFile string) {
