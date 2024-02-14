@@ -12,6 +12,7 @@ import (
 
 	"github.com/dkwiebe/gotun2socks/internal/gosocks"
 	"github.com/dkwiebe/gotun2socks/internal/packet"
+	"github.com/getsentry/sentry-go"
 )
 
 const (
@@ -78,8 +79,7 @@ type UidCallback interface {
 type Tun2Socks struct {
 	dev io.ReadWriteCloser
 
-	writerStopCh chan bool
-	writeCh      chan interface{}
+	writeCh chan interface{}
 
 	tcpConnTrackMap    map[string]*tcpConnTrack
 	proxyServerMap     map[int]*ProxyServer
@@ -91,7 +91,6 @@ type Tun2Socks struct {
 
 	udpConnTrackLock sync.Mutex
 	udpConnTrackMap  map[string]*udpConnTrack
-	cache            *dnsCache
 	stopped          bool
 
 	wg sync.WaitGroup
@@ -99,6 +98,10 @@ type Tun2Socks struct {
 	customDnsHost4 net.IP
 	customDnsHost6 net.IP
 	customDnsPort  uint16
+}
+
+func (t2s *Tun2Socks) Stopped() bool {
+	return t2s.stopped
 }
 
 func isPrivate(ip net.IP) bool {
@@ -132,10 +135,9 @@ func dialTransaprent(localAddr string) (*gosocks.SocksConn, error) {
 	return directDialer.Dial(localAddr)
 }
 
-func New(dev io.ReadWriteCloser, enableDnsCache bool, dnsServerIp4, dnsServerIp6 net.IP, dnsServerPort uint16) *Tun2Socks {
+func New(dev io.ReadWriteCloser, dnsServerIp4, dnsServerIp6 net.IP, dnsServerPort uint16) *Tun2Socks {
 	t2s := &Tun2Socks{
 		dev:                dev,
-		writerStopCh:       make(chan bool, 10),
 		writeCh:            make(chan interface{}, 10000),
 		tcpConnTrackMap:    make(map[string]*tcpConnTrack),
 		udpConnTrackMap:    make(map[string]*udpConnTrack),
@@ -146,11 +148,6 @@ func New(dev io.ReadWriteCloser, enableDnsCache bool, dnsServerIp4, dnsServerIp6
 		customDnsHost4:     dnsServerIp4,
 		customDnsHost6:     dnsServerIp6,
 		customDnsPort:      dnsServerPort,
-	}
-	if enableDnsCache {
-		t2s.cache = &dnsCache{
-			storage: make(map[string]*dnsCacheEntry),
-		}
 	}
 	return t2s
 }
@@ -170,8 +167,6 @@ func (t2s *Tun2Socks) SetProxyServers(proxyServerMap map[int]*ProxyServer) {
 func (t2s *Tun2Socks) Stop() {
 	t2s.dev.Close()
 	t2s.stopped = true
-
-	t2s.writerStopCh <- true
 
 	t2s.tcpConnTrackLock.Lock()
 	defer t2s.tcpConnTrackLock.Unlock()
@@ -195,6 +190,7 @@ func (t2s *Tun2Socks) Stop() {
 func (t2s *Tun2Socks) Run() {
 	// writer
 	go func() {
+		defer sentry.Recover()
 		t2s.wg.Add(1)
 		defer t2s.wg.Done()
 
@@ -219,9 +215,13 @@ func (t2s *Tun2Socks) Run() {
 				case []byte:
 					t2s.dev.Write(pkt.([]byte))
 				}
-			case <-t2s.writerStopCh:
-				log.Printf("quit tun2socks writer")
-				return
+			default:
+				if t2s.stopped {
+					log.Printf("quit tun2socks writer from default")
+					return
+				} else {
+					time.Sleep(time.Microsecond)
+				}
 			}
 		}
 	}()
@@ -234,6 +234,7 @@ func (t2s *Tun2Socks) Run() {
 
 	//worker
 	go func() {
+		defer sentry.Recover()
 		for {
 			if t2s.stopped {
 				break

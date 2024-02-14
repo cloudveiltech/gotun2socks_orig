@@ -10,9 +10,11 @@ import (
 	"runtime/debug"
 	"runtime/pprof"
 	"strings"
+	"time"
 
 	"github.com/dkwiebe/gotun2socks/internal/tun"
 	"github.com/dkwiebe/gotun2socks/internal/tun2socks"
+	"github.com/getsentry/sentry-go"
 	"gopkg.in/natefinch/lumberjack.v2"
 
 	_ "net/http/pprof"
@@ -126,10 +128,10 @@ func SetDnsServer(server string, port int, isV4 bool) {
 		dnsIp6 = net.ParseIP(server)
 	}
 
-	if strings.Count(server, ":") > 1 { //ipv6
-		dnsServerV6 = fmt.Sprintf("[%s]:%d", server, port)
-	} else {
+	if isV4 { //ipv6
 		dnsServerV4 = fmt.Sprintf("%s:%d", server, port)
+	} else {
+		dnsServerV6 = fmt.Sprintf("[%s]:%d", server, port)
 	}
 }
 
@@ -144,13 +146,13 @@ func Run(descriptor int, maxCpus int, logPath string) {
 	if len(logPath) > 0 {
 		setupLogger(logPath)
 	}
+	setupSentry()
 
 	var tunAddr string = "10.253.253.253"
 	var tunGW string = "10.0.0.1"
-	var enableDnsCache bool = true
 
 	f := tun.NewTunDev(uintptr(descriptor), "tun0", tunAddr, tunGW)
-	tun2SocksInstance = tun2socks.New(f, enableDnsCache, dnsIp4, dnsIp6, dnsPort)
+	tun2SocksInstance = tun2socks.New(f, dnsIp4, dnsIp6, dnsPort)
 
 	tun2SocksInstance.SetDefaultProxy(defaultProxy)
 	tun2SocksInstance.SetProxyServers(proxyServerMap)
@@ -161,6 +163,7 @@ func Run(descriptor int, maxCpus int, logPath string) {
 	}
 
 	go func() {
+		defer sentry.Recover()
 		tun2SocksInstance.Run()
 	}()
 
@@ -188,6 +191,19 @@ func setupLogger(logFile string) {
 	})
 
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
+}
+
+func setupSentry() {
+	err := sentry.Init(sentry.ClientOptions{
+		Dsn: SENTRY_DSN,
+	})
+	if err != nil {
+		log.Printf("sentry.Init: %s", err)
+	}
+
+	// Flush buffered events before the program terminates.
+	// Set the timeout to the maximum duration the program can afford to wait.
+	defer sentry.Flush(time.Millisecond * 100)
 }
 
 func Stop() {

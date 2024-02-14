@@ -2,6 +2,8 @@ package tun2socks
 
 import (
 	"sync/atomic"
+
+	"github.com/getsentry/sentry-go"
 )
 
 type taskPool struct {
@@ -25,7 +27,11 @@ func (pool *taskPool) SubmitAsyncTask(task func()) {
 	//go func() {
 	//	pool.taskChannel <- task
 	//}()
-	go task() //trivial for now
+
+	go func() {
+		defer sentry.Recover()
+		task() //trivial for now
+	}()
 }
 
 func (pool *taskPool) worker() {

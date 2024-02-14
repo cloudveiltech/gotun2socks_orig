@@ -10,6 +10,7 @@ import (
 
 	"github.com/dkwiebe/gotun2socks/internal/gosocks"
 	"github.com/dkwiebe/gotun2socks/internal/packet"
+	"github.com/getsentry/sentry-go"
 	"github.com/miekg/dns"
 )
 
@@ -186,19 +187,20 @@ func dialUdpTransparent(address string) (conn *gosocks.SocksConn, err error) {
 }
 
 func (ut *udpConnTrack) run() {
+	defer sentry.Recover()
 	// connect to socks
 	var e error
 
 	targetIp := ut.remoteIP
 	port := ut.remotePort
-	if ut.t2s.isDNS(port) {
-		if ut.t2s.customDnsHost4 != nil && (targetIp.To4() != nil || ut.t2s.customDnsHost6 == nil) { //use v4 host if v6 is not set
-			port = ut.t2s.customDnsPort
-			targetIp = ut.t2s.customDnsHost4
-		} else if ut.t2s.customDnsHost6 != nil && targetIp.To4() == nil {
-			targetIp = ut.t2s.customDnsHost6
-			port = ut.t2s.customDnsPort
-		}
+
+	isQuic := port == 80 || port == 443
+	if isQuic {
+		ut.socksConn.Close()
+		close(ut.socksClosed)
+		close(ut.quitBySelf)
+		ut.t2s.clearUDPConnTrack(ut.id)
+		return
 	}
 
 	var remoteIpPort = ""
@@ -247,12 +249,18 @@ func (ut *udpConnTrack) run() {
 	// read UDP packets from relay
 	quitUDP := make(chan bool)
 	chRelayUDP := make(chan *gosocks.UDPPacket)
+	defer func() {
+		ut.socksConn.Close()
+		udpBind.Close()
+		close(ut.quitBySelf)
+		ut.t2s.clearUDPConnTrack(ut.id)
+		quitUDP <- true
+		close(quitUDP)
+	}()
 	go gosocks.UDPReader(udpBind, chRelayUDP, quitUDP)
 
 	//start := time.Now()
 	for {
-		var t = time.NewTimer(time.Second)
-
 		if ut.t2s.stopped {
 			return
 		}
@@ -261,73 +269,21 @@ func (ut *udpConnTrack) run() {
 		// pkt from relay
 		case pkt, ok := <-chRelayUDP:
 			if !ok {
-				ut.socksConn.Close()
-				udpBind.Close()
-				close(ut.quitBySelf)
-				ut.t2s.clearUDPConnTrack(ut.id)
-				close(quitUDP)
 				return
 			}
-
 			ut.send(pkt.Data)
-
-			if ut.t2s.isDNS(ut.remotePort) {
-				// dumpDnsResponse(pkt.Data)
-				// DNS-without-fragment only has one request-response
-				//	end := time.Now()
-				//	ms := end.Sub(start).Nanoseconds() / 1000000
-				if ut.remoteIP.To4() != nil {
-					if ut.t2s.cache != nil {
-						ut.t2s.cache.store(pkt.Data)
-					}
-				}
-				ut.socksConn.Close()
-				udpBind.Close()
-				close(ut.quitBySelf)
-				ut.t2s.clearUDPConnTrack(ut.id)
-				close(quitUDP)
-				return
-			}
-
-		// pkt from tun
 		case pkt := <-ut.fromTunCh:
 			_, err := udpBind.WriteToUDP(pkt.udp.Payload, relayAddr)
 			releaseUDPPacket(pkt)
 			if err != nil {
 				log.Printf("error to send UDP packet to relay: %s", err)
-				ut.socksConn.Close()
-				udpBind.Close()
-				close(ut.quitBySelf)
-				ut.t2s.clearUDPConnTrack(ut.id)
-				close(quitUDP)
 				return
 			}
-
 		case <-ut.socksClosed:
-			ut.socksConn.Close()
-			udpBind.Close()
-			close(ut.quitBySelf)
-			ut.t2s.clearUDPConnTrack(ut.id)
-			close(quitUDP)
 			return
-
-		case <-t.C:
-			ut.socksConn.Close()
-			udpBind.Close()
-			close(ut.quitBySelf)
-			ut.t2s.clearUDPConnTrack(ut.id)
-			close(quitUDP)
-			return
-
 		case <-ut.quitByOther:
-			ut.socksConn.Close()
-			udpBind.Close()
-			close(quitUDP)
 			return
-			//	default:
-			//		time.Sleep(time.Millisecond)
 		}
-		t.Stop()
 	}
 }
 
@@ -355,9 +311,10 @@ func (t2s *Tun2Socks) clearUDPConnTrack(id string) {
 	defer t2s.udpConnTrackLock.Unlock()
 
 	track := t2s.udpConnTrackMap[id]
-	track.destroyed = true
-
-	delete(t2s.udpConnTrackMap, id)
+	if track != nil {
+		track.destroyed = true
+		delete(t2s.udpConnTrackMap, id)
+	}
 }
 
 func (t2s *Tun2Socks) getUDPConnTrack(id string, ip *packet.Ip, udp *packet.UDP) *udpConnTrack {
@@ -397,111 +354,16 @@ func (t2s *Tun2Socks) getUDPConnTrack(id string, ip *packet.Ip, udp *packet.UDP)
 }
 
 func (t2s *Tun2Socks) udp(raw []byte, ip *packet.Ip, udp *packet.UDP) {
-	var buf [1024]byte
-	var done bool
+	log.Printf("UDP worker: %d %d", ip.Dst, udp.DstPort)
 
-	// first look at dns cache
-	if t2s.cache != nil && t2s.isDNS(udp.DstPort) {
-		answer := t2s.cache.query(udp.Payload)
-		if answer != nil {
-			data, e := answer.PackBuffer(buf[:])
-			if e == nil {
-				resp, fragments := responsePacket(ip.Src, ip.Dst, udp.SrcPort, udp.DstPort, data)
-				go func(first *udpPacket, frags []*ipPacket) {
-					t2s.writeCh <- first
-					if frags != nil {
-						for _, frag := range frags {
-							t2s.writeCh <- frag
-						}
-					}
-				}(resp, fragments)
-				done = true
-			}
-		}
+	isQuic := udp.DstPort == 80 || udp.DstPort == 443
+	if isQuic {
+		return
 	}
-
-	if !t2s.isDNS(udp.DstPort) {
-		done = true
-	}
-
-	// then open a udpConnTrack to forward
-	if !done {
-		log.Printf("UDP worker: %d %d", ip.Dst, udp.DstPort)
-		connID := udpConnID(ip, udp)
-		pkt := copyUDPPacket(raw, ip, udp)
-		track := t2s.getUDPConnTrack(connID, ip, udp)
-		track.newPacket(pkt)
-	}
-}
-
-type dnsCacheEntry struct {
-	msg *dns.Msg
-	exp time.Time
-}
-
-type dnsCache struct {
-	servers []string
-	mutex   sync.Mutex
-	storage map[string]*dnsCacheEntry
+	connID := udpConnID(ip, udp)
+	pkt := copyUDPPacket(raw, ip, udp)
+	track := t2s.getUDPConnTrack(connID, ip, udp)
+	track.newPacket(pkt)
 }
 
 func packUint16(i uint16) []byte { return []byte{byte(i >> 8), byte(i)} }
-
-func cacheKey(q dns.Question) string {
-	return string(append([]byte(q.Name), packUint16(q.Qtype)...))
-}
-
-func (t2s *Tun2Socks) isDNS(remotePort uint16) bool {
-	return remotePort == 53 || remotePort == 853
-}
-
-func (c *dnsCache) query(payload []byte) *dns.Msg {
-	return nil
-
-	request := new(dns.Msg)
-	e := request.Unpack(payload)
-	if e != nil {
-		return nil
-	}
-	if len(request.Question) == 0 {
-		return nil
-	}
-
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	key := cacheKey(request.Question[0])
-	entry := c.storage[key]
-	if entry == nil {
-		return nil
-	}
-	if time.Now().After(entry.exp) {
-		delete(c.storage, key)
-		return nil
-	}
-	entry.msg.Id = request.Id
-	return entry.msg
-}
-
-func (c *dnsCache) store(payload []byte) {
-	return
-
-	resp := new(dns.Msg)
-	e := resp.Unpack(payload)
-	if e != nil {
-		return
-	}
-	if resp.Rcode != dns.RcodeSuccess {
-		return
-	}
-	if len(resp.Question) == 0 || len(resp.Answer) == 0 {
-		return
-	}
-
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	key := cacheKey(resp.Question[0])
-	c.storage[key] = &dnsCacheEntry{
-		msg: resp,
-		exp: time.Now().Add(time.Duration(resp.Answer[0].Header().Ttl) * time.Second),
-	}
-}

@@ -8,6 +8,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/getsentry/sentry-go"
 )
 
 const (
@@ -381,6 +383,7 @@ func (h *BasicSocksHandler) HandleCmdUDPAssociate(req *SocksRequest, conn *Socks
 }
 
 func UDPReader(u *net.UDPConn, ch chan<- *UDPPacket, quit chan bool) {
+	defer sentry.Recover()
 	u.SetDeadline(time.Time{})
 	var buf [largeBufSize]byte
 loop:
@@ -396,6 +399,8 @@ loop:
 		case ch <- &UDPPacket{addr, b}:
 		case <-quit:
 			break loop
+		default:
+			time.Sleep(time.Microsecond)
 		}
 	}
 

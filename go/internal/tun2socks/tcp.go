@@ -12,6 +12,7 @@ import (
 
 	"github.com/dkwiebe/gotun2socks/internal/gosocks"
 	"github.com/dkwiebe/gotun2socks/internal/packet"
+	"github.com/getsentry/sentry-go"
 )
 
 type tcpPacket struct {
@@ -477,6 +478,8 @@ func (tt *tcpConnTrack) stateClosed(syn *tcpPacket) (continu bool, release bool)
 
 	if e != nil {
 		log.Printf("fail to connect proxy: %s", e)
+		resp := rstByPacket(syn)
+		tt.toTunCh <- resp.wire
 		return false, true
 	} else {
 		// no timeout
@@ -631,6 +634,7 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 	// reader
 	var readerFunc func()
 	readerFunc = func() {
+		defer sentry.Recover()
 		var buf [MTU - 40]byte
 		for {
 			if tt.t2s.stopped || tt.destroyed {
