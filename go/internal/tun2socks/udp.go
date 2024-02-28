@@ -196,7 +196,10 @@ func (ut *udpConnTrack) run() {
 
 	isQuic := port == 80 || port == 443
 	if isQuic {
-		ut.socksConn.Close()
+		log.Print("QUIC blocked 1")
+		if ut.socksConn != nil {
+			ut.socksConn.Close()
+		}
 		close(ut.socksClosed)
 		close(ut.quitBySelf)
 		ut.t2s.clearUDPConnTrack(ut.id)
@@ -256,6 +259,7 @@ func (ut *udpConnTrack) run() {
 		ut.t2s.clearUDPConnTrack(ut.id)
 		quitUDP <- true
 		close(quitUDP)
+		log.Print("Close UPD Run")
 	}()
 	go gosocks.UDPReader(udpBind, chRelayUDP, quitUDP)
 
@@ -355,11 +359,6 @@ func (t2s *Tun2Socks) getUDPConnTrack(id string, ip *packet.Ip, udp *packet.UDP)
 
 func (t2s *Tun2Socks) udp(raw []byte, ip *packet.Ip, udp *packet.UDP) {
 	log.Printf("UDP worker: %d %d", ip.Dst, udp.DstPort)
-
-	isQuic := udp.DstPort == 80 || udp.DstPort == 443
-	if isQuic {
-		return
-	}
 	connID := udpConnID(ip, udp)
 	pkt := copyUDPPacket(raw, ip, udp)
 	track := t2s.getUDPConnTrack(connID, ip, udp)

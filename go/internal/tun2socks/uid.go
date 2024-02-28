@@ -23,6 +23,10 @@ func getTcpData(isV6 bool) []string {
 	}
 	lines := strings.Split(string(data), "\n")
 
+	if len(lines) < 3 {
+		return nil
+	}
+
 	// Return lines without Header line and blank line on the end
 	return lines[1 : len(lines)-1]
 }

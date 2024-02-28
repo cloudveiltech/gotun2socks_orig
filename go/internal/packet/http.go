@@ -16,9 +16,13 @@ func GetHostnamePlainHttp(data []byte) (string, error) {
 	hostString := "Host: "
 	start = findStringInData(data, hostString, 0)
 	if start < 0 {
-		return "", fmt.Errorf("Host not found")
+		return "", fmt.Errorf("host not found")
 	}
+
 	end = findStringInData(data, "\r\n", start+len(hostString))
+	if end < 0 {
+		return "", fmt.Errorf("host not found")
+	}
 
 	return strings.TrimSpace(string(data[start+len(hostString) : end])), nil
 }

@@ -386,6 +386,11 @@ func UDPReader(u *net.UDPConn, ch chan<- *UDPPacket, quit chan bool) {
 	defer sentry.Recover()
 	u.SetDeadline(time.Time{})
 	var buf [largeBufSize]byte
+
+	defer func() {
+		log.Printf("UDPReader exit")
+	}()
+
 loop:
 	for {
 		n, addr, err := u.ReadFromUDP(buf[:])
@@ -398,13 +403,16 @@ loop:
 		select {
 		case ch <- &UDPPacket{addr, b}:
 		case <-quit:
+			log.Printf("Quit received in loop")
 			break loop
-		default:
-			time.Sleep(time.Microsecond)
 		}
 	}
 
 	close(ch)
+	t := false
+	for msg := range quit {
+		t = t || msg
+	}
 }
 
 func ConnMonitor(c net.Conn, quit chan bool) {

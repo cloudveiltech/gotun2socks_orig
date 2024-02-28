@@ -45,6 +45,8 @@ var defaultProxy = &tun2socks.ProxyServer{
 	Password:   "",
 }
 
+var logger *lumberjack.Logger = nil
+var sentryLaunched = false
 var dnsServerV4 string = ""
 var dnsServerV6 string = ""
 var dnsPort uint16 = 53
@@ -53,7 +55,6 @@ var dnsIp6 net.IP
 var callback *Callbacks = nil
 var customDialer net.Dialer
 var proxyServerMap map[int]*tun2socks.ProxyServer
-var logFileHandle *os.File
 
 func SayHi() string {
 	return "hi from tun2http!"
@@ -140,13 +141,13 @@ func SetMaxCpus(maxCpus int) {
 	runtime.GOMAXPROCS(maxCpus)
 }
 
-func Run(descriptor int, maxCpus int, logPath string) {
+func Run(descriptor int, maxCpus int, logPath string, appVersion string) {
 	SetMaxCpus(maxCpus)
 
 	if len(logPath) > 0 {
 		setupLogger(logPath)
 	}
-	setupSentry()
+	setupSentry(appVersion)
 
 	var tunAddr string = "10.253.253.253"
 	var tunGW string = "10.0.0.1"
@@ -183,34 +184,38 @@ func Run(descriptor int, maxCpus int, logPath string) {
 }
 
 func setupLogger(logFile string) {
-	log.SetOutput(&lumberjack.Logger{
+	logger = &lumberjack.Logger{
 		Filename:   logFile,
 		MaxSize:    5, // megabytes
 		MaxBackups: 3,
 		MaxAge:     30, //days
-	})
+	}
+	log.SetOutput(logger)
 
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 }
 
-func setupSentry() {
+func setupSentry(appVersion string) {
+	if sentryLaunched {
+		return
+	}
+	sentryLaunched = true
+
 	err := sentry.Init(sentry.ClientOptions{
-		Dsn: SENTRY_DSN,
+		Dsn:     SENTRY_DSN,
+		Release: "locker-vpn@" + appVersion,
 	})
 	if err != nil {
 		log.Printf("sentry.Init: %s", err)
 	}
-
-	// Flush buffered events before the program terminates.
-	// Set the timeout to the maximum duration the program can afford to wait.
-	defer sentry.Flush(time.Millisecond * 100)
 }
 
 func Stop() {
 	tun2SocksInstance.Stop()
-	if logFileHandle != nil {
-		logFileHandle.Close()
+	if logger != nil {
+		logger.Close()
 	}
+	sentry.Flush(time.Second)
 }
 
 func Prof() {
