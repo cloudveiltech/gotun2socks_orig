@@ -196,7 +196,7 @@ func (ut *udpConnTrack) run() {
 
 	isQuic := port == 80 || port == 443
 	if isQuic {
-		log.Print("QUIC blocked 1")
+		//log.Print("QUIC blocked")
 		if ut.socksConn != nil {
 			ut.socksConn.Close()
 		}
@@ -204,6 +204,16 @@ func (ut *udpConnTrack) run() {
 		close(ut.quitBySelf)
 		ut.t2s.clearUDPConnTrack(ut.id)
 		return
+	}
+
+	if port == 53 {
+		if ut.t2s.customDnsHost4 != nil && (targetIp.To4() != nil || ut.t2s.customDnsHost6 == nil) { //use v4 host if v6 is not set
+			port = ut.t2s.customDnsPort
+			targetIp = ut.t2s.customDnsHost4
+		} else if ut.t2s.customDnsHost6 != nil && targetIp.To4() == nil {
+			targetIp = ut.t2s.customDnsHost6
+			port = ut.t2s.customDnsPort
+		}
 	}
 
 	var remoteIpPort = ""
@@ -259,7 +269,7 @@ func (ut *udpConnTrack) run() {
 		ut.t2s.clearUDPConnTrack(ut.id)
 		quitUDP <- true
 		close(quitUDP)
-		log.Print("Close UPD Run")
+		//	log.Print("Close UPD Run")
 	}()
 	go gosocks.UDPReader(udpBind, chRelayUDP, quitUDP)
 
@@ -358,7 +368,11 @@ func (t2s *Tun2Socks) getUDPConnTrack(id string, ip *packet.Ip, udp *packet.UDP)
 }
 
 func (t2s *Tun2Socks) udp(raw []byte, ip *packet.Ip, udp *packet.UDP) {
-	log.Printf("UDP worker: %d %d", ip.Dst, udp.DstPort)
+	//log.Printf("UDP worker: %d %d", ip.Dst, udp.DstPort)
+	if udp.DstPort != 53 {
+		//	log.Printf("Non DNS request dropped (port %d)", udp.DstPort)
+		return
+	}
 	connID := udpConnID(ip, udp)
 	pkt := copyUDPPacket(raw, ip, udp)
 	track := t2s.getUDPConnTrack(connID, ip, udp)

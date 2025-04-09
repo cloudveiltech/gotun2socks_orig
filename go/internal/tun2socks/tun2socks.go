@@ -22,6 +22,7 @@ const (
 	PROXY_TYPE_SOCKS       = 1
 	PROXY_TYPE_HTTP        = 2
 	PROXY_TYPE_TRANSPARENT = 3
+	VERSION                = 2
 )
 
 var (
@@ -132,6 +133,7 @@ func dialTlsTunneling(localAddr string) (*gosocks.SocksConn, error) {
 }
 
 func dialTransaprent(localAddr string) (*gosocks.SocksConn, error) {
+	//log.Printf("Dial transparent %s", localAddr)
 	return directDialer.Dial(localAddr)
 }
 
@@ -188,7 +190,10 @@ func (t2s *Tun2Socks) Stop() {
 }
 
 func (t2s *Tun2Socks) Run() {
+	log.Printf("Run, version v%d", VERSION)
+
 	// writer
+	quitWriter := make(chan bool)
 	go func() {
 		defer sentry.Recover()
 		t2s.wg.Add(1)
@@ -196,6 +201,14 @@ func (t2s *Tun2Socks) Run() {
 
 		buf := make([]byte, 2*MTU)
 		for {
+			if t2s.stopped {
+				//log.Printf("Quit writer in loop")
+				t := false
+				for msg := range quitWriter {
+					t = t || msg
+				}
+				return
+			}
 			select {
 			case pkt := <-t2s.writeCh:
 				switch pkt.(type) {
@@ -215,13 +228,9 @@ func (t2s *Tun2Socks) Run() {
 				case []byte:
 					t2s.dev.Write(pkt.([]byte))
 				}
-			default:
-				if t2s.stopped {
-					log.Printf("quit tun2socks writer from default")
-					return
-				} else {
-					time.Sleep(time.Microsecond)
-				}
+			case <-quitWriter:
+				//log.Printf("quitWriter channel in loop")
+				return
 			}
 		}
 	}()
@@ -260,11 +269,17 @@ func (t2s *Tun2Socks) Run() {
 	t2s.wg.Add(1)
 	defer t2s.wg.Done()
 
+	defer func() {
+		log.Printf("about to quit tun2socks reader")
+		quitWriter <- true
+		close(quitWriter)
+		//	log.Printf("quit tun2socks reader")
+	}()
+
 	for {
 		n, e := t2s.dev.Read(buf[:])
 
 		if t2s.stopped {
-			log.Printf("quit tun2socks reader")
 			return
 		}
 
@@ -314,6 +329,7 @@ func (t2s *Tun2Socks) Run() {
 			}
 			t2s.udp(data, &ip, &udp)
 		default:
+			//log.Printf("Unsupported proto for ip v%d : %d", ip.Version, ip.GetNextProto())
 			// Unsupported packets
 		}
 	}

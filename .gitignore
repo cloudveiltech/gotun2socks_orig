@@ -1,3 +1,5 @@
 .idea
 /android/wrapper
 /go/.gradle
+/go/.vscode
+/go/_vendor

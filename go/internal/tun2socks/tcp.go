@@ -43,7 +43,7 @@ const (
 	CONNECT_ESTABLISHED = 1
 
 	TIMEOUT    = 10 * time.Second
-	ACTTIMEOUT = 10 * time.Millisecond
+	ACTTIMEOUT = 1000 * time.Millisecond
 )
 
 type tcpConnTrack struct {
@@ -581,13 +581,13 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 	var writerFunc func()
 	writerFunc = func() {
 		if tt.t2s.stopped || tt.destroyed {
-			log.Print("Writer exit routine")
+			//log.Print("Writer exit routine")
 			return
 		}
 
 		select {
 		case <-closeCh:
-			log.Print("Writer exit routine")
+			//log.Print("Writer exit routine")
 			return
 		case pkt := <-writeCh:
 			if tt.connectState == CONNECT_NOT_SENT {
@@ -641,7 +641,8 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 				break
 			}
 
-			conn.SetReadDeadline(time.Now().Add(time.Millisecond * 5000))
+			//	conn.SetReadDeadline(time.Now().Add(time.Millisecond * 5000))
+			conn.SetDeadline(time.Time{}) //websockets support needs no timeout because some sites doesn't ping
 
 			// tt.sendWndCond.L.Lock()
 			var wnd int32
@@ -703,7 +704,7 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 		if !tt.destroyed {
 			close(closeCh)
 		}
-		log.Print("Reader exit routine")
+		//log.Print("Reader exit routine")
 	}
 
 	go readerFunc()

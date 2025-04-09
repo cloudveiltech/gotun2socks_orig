@@ -15,6 +15,8 @@ import (
 	"github.com/dkwiebe/gotun2socks/internal/tun"
 	"github.com/dkwiebe/gotun2socks/internal/tun2socks"
 	"github.com/getsentry/sentry-go"
+
+	//"github.com/getsentry/sentry-go"
 	"gopkg.in/natefinch/lumberjack.v2"
 
 	_ "net/http/pprof"
@@ -170,13 +172,13 @@ func Run(descriptor int, maxCpus int, logPath string, appVersion string) {
 
 	customDialer = net.Dialer{}
 
-	if len(dnsServerV4) > 0 {
-		r := net.Resolver{
-			PreferGo: true,
-			Dial:     customDNSDialer,
-		}
-		net.DefaultResolver = &r
-	}
+	// if len(dnsServerV4) > 0 {
+	// 	r := net.Resolver{
+	// 		PreferGo: true,
+	// 		Dial:     customDNSDialer,
+	// 	}
+	// 	net.DefaultResolver = &r
+	// }
 
 	log.Printf("Tun2Htpp started")
 	debug.SetTraceback("all")
@@ -225,6 +227,7 @@ func Prof() {
 }
 
 func customDNSDialer(ctx context.Context, network, address string) (net.Conn, error) {
+	log.Print("CustomDNSDialer called")
 	addressServer := dnsServerV4
 	if strings.Contains(address, ":") && !strings.Contains(address, ".") {
 		addressServer = dnsServerV6
