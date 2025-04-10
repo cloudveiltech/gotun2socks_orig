@@ -22,7 +22,7 @@ const (
 	PROXY_TYPE_SOCKS       = 1
 	PROXY_TYPE_HTTP        = 2
 	PROXY_TYPE_TRANSPARENT = 3
-	VERSION                = 2
+	VERSION                = 4
 )
 
 var (
@@ -327,6 +327,7 @@ func (t2s *Tun2Socks) Run() {
 				log.Printf("error to parse UDP: %s", e)
 				continue
 			}
+			//	log.Printf("UDP received from tun: %v", udp.DstPort)
 			t2s.udp(data, &ip, &udp)
 		default:
 			//log.Printf("Unsupported proto for ip v%d : %d", ip.Version, ip.GetNextProto())

@@ -183,6 +183,7 @@ func dialUdpTransparent(address string) (conn *gosocks.SocksConn, err error) {
 		return
 	}
 	conn = &gosocks.SocksConn{c.(*net.UDPConn), time.Second}
+	conn.SetDeadline(time.Time{})
 	return
 }
 
@@ -226,8 +227,6 @@ func (ut *udpConnTrack) run() {
 	ut.socksConn, e = dialUdpTransparent(remoteIpPort) //bypass udp
 	if e != nil {
 		log.Printf("fail to connect remote ip: %s", e)
-	} else {
-		ut.socksConn.SetDeadline(time.Now().Add(time.Second * 10))
 	}
 
 	if ut.socksConn == nil {
@@ -285,8 +284,10 @@ func (ut *udpConnTrack) run() {
 			if !ok {
 				return
 			}
+			//log.Printf("Reading UDP packet, %v", pkt.Addr.Port)
 			ut.send(pkt.Data)
 		case pkt := <-ut.fromTunCh:
+			//	log.Printf("Writing UDP packet, %v", pkt.udp.DstPort)
 			_, err := udpBind.WriteToUDP(pkt.udp.Payload, relayAddr)
 			releaseUDPPacket(pkt)
 			if err != nil {
@@ -368,11 +369,6 @@ func (t2s *Tun2Socks) getUDPConnTrack(id string, ip *packet.Ip, udp *packet.UDP)
 }
 
 func (t2s *Tun2Socks) udp(raw []byte, ip *packet.Ip, udp *packet.UDP) {
-	//log.Printf("UDP worker: %d %d", ip.Dst, udp.DstPort)
-	if udp.DstPort != 53 {
-		//	log.Printf("Non DNS request dropped (port %d)", udp.DstPort)
-		return
-	}
 	connID := udpConnID(ip, udp)
 	pkt := copyUDPPacket(raw, ip, udp)
 	track := t2s.getUDPConnTrack(connID, ip, udp)
