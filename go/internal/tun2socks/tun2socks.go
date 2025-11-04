@@ -22,7 +22,7 @@ const (
 	PROXY_TYPE_SOCKS       = 1
 	PROXY_TYPE_HTTP        = 2
 	PROXY_TYPE_TRANSPARENT = 3
-	VERSION                = 4
+	VERSION                = 6
 )
 
 var (

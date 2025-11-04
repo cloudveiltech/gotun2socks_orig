@@ -119,10 +119,22 @@ func (a *UserNamePasswordClientAuthenticator) ClientAuthenticate(conn *SocksConn
 
 func (d *SocksDialer) Dial(address string) (conn *SocksConn, err error) {
 	c, err := net.DialTimeout("tcp", address, time.Second)
+
 	if err != nil {
 		log.Printf("Can't connect to proxy %v", err)
 		return nil, err
 	}
+
+	tcpConn := c.(*net.TCPConn)
+	e := tcpConn.SetKeepAlive(true)
+	if e != nil {
+		log.Printf("error SetKeepAlive: %s", e)
+	}
+	e = tcpConn.SetKeepAlivePeriod(time.Second)
+	if e != nil {
+		log.Printf("error SetKeepAlivePeriod: %s", e)
+	}
+	log.Printf("KeepAlive Set")
 
 	_, ok := d.Auth.(*TlsAuthenticator)
 	if !ok {

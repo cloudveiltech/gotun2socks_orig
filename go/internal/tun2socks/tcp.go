@@ -42,7 +42,7 @@ const (
 	CONNECT_SENT        = 0
 	CONNECT_ESTABLISHED = 1
 
-	TIMEOUT    = 10 * time.Second
+	TIMEOUT    = 120 * time.Second
 	ACTTIMEOUT = 1000 * time.Millisecond
 )
 
@@ -635,6 +635,7 @@ func (tt *tcpConnTrack) tcpSocks2Tun(dstIP net.IP, dstPort uint16, conn net.Conn
 	var readerFunc func()
 	readerFunc = func() {
 		defer sentry.Recover()
+
 		var buf [MTU - 40]byte
 		for {
 			if tt.t2s.stopped || tt.destroyed {
@@ -937,6 +938,8 @@ func (tt *tcpConnTrack) run() {
 				releaseTCPPacket(pkt)
 			}
 			if !continu {
+
+				log.Printf("error continu %v ", tt.state)
 				tt.destroyed = true
 				if tt.socksConn != nil {
 					tt.socksConn.Close()
