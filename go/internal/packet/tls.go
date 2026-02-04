@@ -50,7 +50,7 @@ func GetSNIBlock(data []byte) ([]byte, error) {
 	index := 0
 
 	for {
-		if index >= len(data)-1 {
+		if index >= len(data)-2 {
 			break
 		}
 		length := int((data[index] << 8) + data[index+1])
